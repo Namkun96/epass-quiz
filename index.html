@@ -38,7 +38,7 @@
         }
         const db = firebase.apps.length ? firebase.firestore() : null;
 
-        // --- NGÂN HÀNG 100 CÂU HỎI CHUYÊN SÂU ---
+        // --- NGÂN HÀNG CÂU HỎI CHUYÊN SÂU ---
         const allQuestions = [
             // NGHIỆP VỤ CƠ BẢN & ĐỊNH DANH
             { q: "Mã định danh nguồn tiền (FUND_ID) của đối tác Fintwin trong hệ thống CRM ePass là gì?", options: ["6060", "1", "7", "2"], a: 2, exp: "FUND_ID = 7 là mã định danh duy nhất cho nguồn tiền Fintwin." },
@@ -55,7 +55,7 @@
             // LUỒNG THANH TOÁN (DANTHE, ETC, PARK)
             { q: "Dịch vụ nào sau đây KHÔNG áp dụng trích nợ tự động qua Fintwin?", options: ["Phí dán/đổi thẻ", "Cước xe qua trạm", "Phí bãi đỗ xe", "Nạp tiền chủ động vào TKGT"], a: 3, exp: "Fintwin dùng để thanh toán cước phí dịch vụ phát sinh, không dùng nạp ví ePass." },
             { q: "Đối với dịch vụ Phí dán thẻ (DANTHE), nếu FW phản hồi thanh toán thất bại ngay lập tức (lỗi token, hệ thống), giao dịch nợ được lưu vào bảng nào?", options: ["SETTLEMENT.DEBT_TRANSACTION", "CRM.DEBIT_TRANSACTION", "SALE_TRANS", "SETTLEMENT.PARKING_DEBT_TRANSACTION"], a: 1, exp: "Nợ phí dán thẻ luôn được quản lý ở bảng CRM.DEBIT_TRANSACTION." },
-            { q: "Tại sao giao dịch xe qua trạm (ETC) lại sinh CDR vào bảng SETTLEMENT.CDR_SUCCESS_TOLL_COLLECTION trước khi gọi trừ tiền Fintwin?", options: ["Vì FW yêu cầu như vậy", "Để cho xe qua trạm ngay lập tức (trả sau), tránh ùn tắc, sau đó đồng bộ truy thu", "Do lỗi đồng bộ hệ thống", "Để chờ khách hàng xác nhận"], a: 1, exp: "Nghiệp vụ ETC ưu tiên tốc độ barie. Cho qua trước (sinh CDR), thu tiền sau." },
+            { q: "Tại sao giao dịch xe qua trạm (ETC) bằng nguồn tiền Fintwin lại được lưu ngay vào bảng SETTLEMENT.CDR_SUCCESS_TOLL_COLLECTION?", options: ["Vì OCS kiểm tra charge_method=61 (nguồn trả sau), TKGT không đủ tiền -> Commit cho xe qua trạm thành công, sinh CDR với charge_method_select=61.", "Vì Fintwin yêu cầu trừ tiền ngay lập tức nhưng mạng chậm.", "Để đối soát với trạm BOT vào cuối ngày.", "Do lỗi đồng bộ hệ thống OCS."], a: 0, exp: "Khi qua trạm, OCS kiểm tra charge_method=61, TKGT không đủ tiền -> commit cho xe qua, lưu CDR. Sau đó thủ tục quét kiểm tra tiếp FUND_ID=7 (tách biệt với 6060 của VISA) để đẩy sang DEBT_TRANSACTION." },
             { q: "Thủ tục quét dữ liệu định kỳ (Job Sync) đẩy giao dịch từ CDR_SUCCESS_TOLL_COLLECTION sang DEBT_TRANSACTION chạy với tần suất bao lâu trên môi trường Production?", options: ["10 phút/lần", "1 tiếng/lần", "1 phút/lần", "Chỉ chạy cuối ngày"], a: 2, exp: "Trên Production, Job đồng bộ chạy 1 phút/lần để đảm bảo thu tiền nhanh nhất." },
             { q: "Trạng thái IS_SYNC = 7 trong bảng CDR_SUCCESS_TOLL_COLLECTION có ý nghĩa gì?", options: ["Giao dịch bị lỗi", "Giao dịch đã được quét và đẩy sang bảng quản lý nợ DEBT_TRANSACTION thành công", "Đã thanh toán thành công", "Đã gửi vào Blacklist"], a: 1, exp: "IS_SYNC = 7 là cờ báo hiệu bản ghi CDR đã được đẩy vào luồng thu nợ." },
             { q: "Trong bảng SETTLEMENT.DEBT_TRANSACTION (ETC), mã RECOVERY_STATUS = 11 biểu thị điều gì?", options: ["Giao dịch nợ mới tạo", "Lỗi kết nối API", "Thanh toán/Truy thu thành công", "Bị đưa vào Blacklist"], a: 2, exp: "RECOVERY_STATUS = 11 là trạng thái thành công sau khi gọi Payment." },
