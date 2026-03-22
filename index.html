@@ -3,191 +3,266 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ePass - Kiểm tra Nghiệp vụ Fintwin</title>
+    <title>BÀI KIỂM TRA NGHIỆP VỤ THANH TOÁN FINTWIN</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .glass-panel { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .danger-stripes { background: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 10px, #fef2f2 10px, #fef2f2 20px); }
     </style>
 </head>
-<body class="bg-gray-50">
+<body>
     <div id="root"></div>
 
-    <script type="text/babel">
+    <script type="text/babel" data-type="module">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- CẤU HÌNH FIREBASE (Thay thế bằng config của bạn để lưu dữ liệu thực) ---
-        // Nếu không có config, Admin sẽ chỉ xem được kết quả tạm thời trong phiên làm việc.
+        // --- FIREBASE CONFIG ---
+        // Điền config thật của bạn vào đây để dữ liệu lưu trên Cloud. Nếu không, app sẽ dùng LocalStorage (chỉ xem được trên máy hiện tại).
         const firebaseConfig = {
             apiKey: "YOUR_API_KEY",
             authDomain: "YOUR_PROJECT.firebaseapp.com",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_PROJECT.appspot.com",
-            messagingSenderId: "YOUR_ID",
-            appId: "YOUR_APP_ID"
+            projectId: "YOUR_PROJECT_ID"
         };
         
-        // Khởi tạo Firebase (nếu bạn đã điền config)
         if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
             firebase.initializeApp(firebaseConfig);
         }
         const db = firebase.apps.length ? firebase.firestore() : null;
 
-        const rawQuestions = [
-            { id: 1, q: "Mã định danh nguồn tiền (FUND_ID) của đối tác Fintwin trong hệ thống CRM là gì?", options: ["6060", "1", "7", "2"], a: 2, exp: "FUND_ID = 7 là mã định danh duy nhất cho nguồn tiền Fintwin." },
-            { id: 2, q: "Trạng thái thanh toán trả sau (Active liên kết nguồn trả sau) được định danh bằng mã nào?", options: ["charge_method = 60", "charge_method = 61", "STATUS = 1", "PROCESSING_STATUS = 2"], a: 1, exp: "Mã 61 định danh cho khách hàng sử dụng hình thức trả sau (Postpaid)." },
-            { id: 3, q: "Bảng nào sau đây lưu trữ quản lý công nợ cho dịch vụ xe qua trạm (ETC)?", options: ["CRM.DEBIT_TRANSACTION", "SETTLEMENT.PARKING_DEBT_TRANSACTION", "SETTLEMENT.DEBT_TRANSACTION", "SALE_TRANS"], a: 2, exp: "Dịch vụ ETC được quản lý nợ tại bảng SETTLEMENT.DEBT_TRANSACTION." },
-            { id: 4, q: "Đối tác Fintwin thực hiện lệnh thanh toán sang Ngân hàng vào khung giờ nào hàng ngày?", options: ["0h00 và 12h00", "8h00 và 15h00", "9h00 và 21h00", "Quét liên tục mỗi 1 phút"], a: 1, exp: "FW gửi lệnh thanh toán 2 đợt: 8h sáng và 15h chiều." },
-            { id: 5, q: "Trong luồng Blacklist dịch vụ phí dán thẻ (DANTHE), PROCESSING_STATUS = 1 có ý nghĩa gì?", options: ["Đã gạch nợ thành công", "Đang chờ đối tác phản hồi", "Đã ghi nhận Blacklist (đang nợ)", "Giao dịch bị lỗi hệ thống"], a: 2, exp: "PROCESSING_STATUS = 1 biểu thị giao dịch đã bị đưa vào danh sách đen." },
-            { id: 6, q: "Khi thanh toán phí dán thẻ qua Fintwin thất bại, dữ liệu nợ được ghi vào bảng nào?", options: ["SETTLEMENT.DEBT_TRANSACTION", "CRM.DEBIT_TRANSACTION", "SETTLEMENT.TRANS_HISTORY", "PAYMENT.CREATE_PAYMENT_VTM"], a: 1, exp: "Mọi giao dịch nợ phí dán thẻ ban đầu được CRM ghi nhận vào bảng CRM.DEBIT_TRANSACTION." },
-            { id: 7, q: "Dịch vụ nào sau đây KHÔNG áp dụng trích nợ tự động qua Fintwin?", options: ["Phí dán/đổi thẻ", "Cước xe qua trạm", "Phí bãi đỗ xe", "Nạp tiền trực tiếp vào TKGT"], a: 3, exp: "Fintwin dùng để thanh toán cước phí phát sinh, không phải nạp tiền." },
-            { id: 8, q: "Mã RECOVERY_STATUS = 11 trong bảng DEBT_TRANSACTION biểu thị điều gì?", options: ["Tạo mới giao dịch nợ", "Thanh toán truy thu thành công", "Giao dịch bị đưa vào Blacklist", "Lỗi kết nối API FW"], a: 1, exp: "RECOVERY_STATUS = 11 là mã cho các giao dịch trừ tiền thành công." },
-            { id: 9, q: "Bảng nào lưu trữ chi tiết giao dịch xe qua trạm ngay khi xe vừa đi qua BOT?", options: ["SETTLEMENT.CDR_SUCCESS_TOLL_COLLECTION", "CRM.CONTRACT_PAYMENT", "SALE_TRANS_DETAIL", "SETTLEMENT.DEBT_COLLECTION_SUCCESS_TIME"], a: 0, exp: "Ghi nhận vào bảng CDR_SUCCESS_TOLL_COLLECTION trước khi Job đồng bộ." },
-            { id: 10, q: "Điều kiện để một hợp đồng được xem là 'Sạch nợ' để Re-active là gì?", options: ["Chỉ cần thanh toán hết nợ xe qua trạm", "Chỉ cần thanh toán hết nợ phí dán thẻ", "Thanh toán hết nợ trên cả 3 bảng: Danthe, ETC và Bãi đỗ", "Khách hàng gọi điện yêu cầu"], a: 2, exp: "Hệ thống kiểm tra nợ chéo trên cả 3 mảng dịch vụ chính." },
-            { id: 11, q: "Tại sao giao dịch xe qua trạm (ETC) lại sinh CDR vào bảng SETTLEMENT trước khi trừ tiền?", options: ["Vì hệ thống OCS bị chậm", "Để cho xe qua trạm trước, thực hiện thu tiền sau (trả sau)", "Để đối soát với trạm BOT", "Vì Fintwin yêu cầu"], a: 1, exp: "OCS cho phép xe qua ngay để tránh ùn tắc, trừ tiền sau." },
-            { id: 12, q: "Trong luồng ETC, nếu CRM.CONTRACT_PAYMENT.FUND_ID = 6060, hệ thống sẽ xử lý thế nào?", options: ["Gọi API sang FW thanh toán", "Trả lỗi 'HĐ đang liên kết Visa' và không gọi FW", "Tự động trừ tiền trong TKGT", "Ghi nhận vào Blacklist ngay"], a: 1, exp: "Hệ thống chặn thanh toán qua FW nếu khách dùng Visa (6060)." },
-            { id: 13, q: "Job quét dữ liệu từ CDR sang DEBT_TRANSACTION trên môi trường Production chạy tần suất bao lâu?", options: ["10 phút/lần", "5 phút/lần", "1 phút/lần", "Ngay lập tức"], a: 2, exp: "Trên Prod, Job chạy mỗi 1 phút." },
-            { id: 14, q: "Khi nhận Blacklist dịch vụ DANTHE từ FW, hệ thống CRM validate failureReason phải bằng bao nhiêu?", options: ["0", "1", "2", "Không cần kiểm tra"], a: 1, exp: "FailureReason = 1 là mã quy định báo hiệu lỗi thanh toán ngân hàng." },
-            { id: 15, q: "Thứ tự các bảng cần kiểm tra nợ khi nhận IPN để Re-active HĐ là gì?", options: ["Nợ Danthe -> Nợ ETC -> Nợ Bãi đỗ", "Nợ ETC -> Nợ Bãi đỗ -> Nợ SMS", "Chỉ kiểm tra dịch vụ vừa nhận IPN", "Kiểm tra số dư TKGT trước"], a: 0, exp: "Quét nợ tuần tự qua các mảng dịch vụ chính." },
-            { id: 16, q: "Nếu hệ thống Billing gọi hàm modifyContract sang OCS thất bại khi Re-active, kết quả là gì?", options: ["HĐ mở trên CRM nhưng khóa trên OCS", "HĐ giữ nguyên trạng thái khóa (60) trên cả CRM và OCS", "Khách hàng đi qua trạm bình thường", "Dữ liệu nợ bị xóa"], a: 1, exp: "Hệ thống giữ trạng thái khóa nếu OCS không đồng bộ thành công." },
-            { id: 17, q: "Cột IS_SYNC = 7 trong bảng CDR_SUCCESS_TOLL_COLLECTION có nghĩa là gì?", options: ["Giao dịch thanh toán thành công", "Quét và đẩy sang DEBT_TRANSACTION thành công", "Giao dịch lỗi đồng bộ", "Chờ Bank xử lý"], a: 1, exp: "Mã 7 định danh bản ghi đã đẩy sang bảng công nợ thành công." },
-            { id: 18, q: "Đối với dịch vụ Bãi đỗ (PARK), nếu FW phản hồi thanh toán thất bại, luồng tiếp theo là gì?", options: ["Ghi nợ Blacklist ngay", "Khóa hợp đồng", "Chuyển sang luồng thanh toán QR hoặc Tiền mặt", "Không cho xe ra khỏi bãi"], a: 2, exp: "Dịch vụ Parking ưu tiên thu tiền ngay qua QR/Tiền mặt nếu FW lỗi." },
-            { id: 19, q: "Khi nhận IPN với ipnType = 'QR_PAYMENT', hệ thống cập nhật PAYMENT_METHOD_ID trong SALE_TRANS là bao nhiêu?", options: ["1", "2", "3", "7"], a: 2, exp: "Mã 3 được quy định cho hình thức thanh toán qua QR Code." },
-            { id: 20, q: "Trường hợp Blacklist dịch vụ PARK, hệ thống cập nhật PROCESSING_STATUS về mã nào trong bảng PARK_DEBT_TRANSACTIONS?", options: ["1", "2", "21", "22"], a: 1, exp: "PROCESSING_STATUS = 2 định danh cho nợ bãi đỗ cần truy thu." },
-            { id: 21, q: "Khách nợ phí dán thẻ (PS=1) và nợ ETC. Sau đó thanh toán nợ phí dán thẻ qua QR. Trạng thái HĐ sẽ là gì?", options: ["Chuyển từ 60 sang 61 (Active)", "Giữ nguyên 60 vì vẫn còn nợ xe qua trạm", "Chuyển sang 61 nhưng OCS chặn", "Tài khoản bị khóa vĩnh viễn"], a: 1, exp: "HĐ vẫn nợ ETC nên phải ở trạng thái 60." },
-            { id: 22, q: "Tại sao khi nhận Blacklist DANTHE, SALE_TRANS.STATUS phải bằng 2?", options: ["Đảm bảo GD đã được gửi lệnh thanh toán sang đối tác trước đó", "Để tránh ghi nợ trùng lặp", "Quy định của Ngân hàng", "Vì STATUS = 2 là trạng thái đã bị hủy"], a: 0, exp: "STATUS = 2 nghĩa là lệnh thanh toán đã phát hành thành công sang FW." },
-            { id: 23, q: "Giao dịch nợ ETC có RECOVERY_STATUS = 14. Điều này có ý nghĩa gì đối với vận hành?", options: ["Giao dịch đã thu hồi xong", "Cần kiểm tra lỗi hệ thống hoặc PTTT để xử lý thủ công", "Khách hàng đã thanh toán tại trạm", "Giao dịch không được phép Blacklist"], a: 1, exp: "Mã 14 là lỗi kỹ thuật chưa định danh, cần kiểm tra thủ công." },
-            { id: 24, q: "FW gửi IPN gạch nợ cho PARK với ipnType = 'FULL_REFUND'. Kiểm tra sự thay đổi ở đâu?", options: ["PARK_DEBT_TRANSACTION, PAYMENT_METHOD_ID = 3", "DEBT_TRANSACTION, PROCESSING_STATUS = 22", "SALE_TRANS, STATUS = 4", "CRM.CONTRACT_PAYMENT, FUND_ID = 6060"], a: 0, exp: "PAYMENT_METHOD_ID cập nhật về 3 trong bảng nợ Parking." },
-            { id: 25, q: "Rủi ro lớn nhất khi khách thanh toán nợ qua QR và IPN từ FW cùng đổ về 1 lúc cho 1 giao dịch?", options: ["Khách bị trừ tiền 2 lần", "Xung đột Race condition (Cần cơ chế Lock bản ghi)", "Hợp đồng bị khóa vĩnh viễn", "Không có rủi ro nào"], a: 1, exp: "Cần cơ chế Lock để tránh ghi nhận kết quả trùng lặp (Concurrency)." },
-            { id: 26, q: "Giao dịch ETC có IS_SCAN = 1 nhưng RECOVERY_STATUS = 10. Khẳng định nào ĐÚNG?", options: ["GD đã thanh toán xong", "Job đã đọc qua nhưng gọi FW chưa có kết quả trả về", "Bản ghi lỗi đồng bộ", "Giao dịch đã bị xóa"], a: 1, exp: "Job đã đọc nhưng chưa có kết quả xử lý từ Payment/FW." },
-            { id: 27, q: "Điểm khác biệt nhất giữa Blacklist DANTHE và Blacklist ETC?", options: ["DANTHE khóa HĐ, ETC không khóa", "DANTHE dùng PS=1, ETC dùng PS=21", "DANTHE do Billing, ETC do CRM xử lý", "DANTHE không cần IPN, ETC bắt buộc"], a: 1, exp: "Mã trạng thái xử lý khác nhau: Danthe dùng 1, ETC dùng 21." },
-            { id: 28, q: "Khi Re-active, tại sao cần kiểm tra FUND_ID hiện tại trên CRM.CONTRACT_PAYMENT phải bằng 7?", options: ["Đảm bảo khách vẫn duy trì liên kết FW", "Để tính phí hoa hồng", "Để cập nhật TOKEN mới", "Bước này không cần thiết"], a: 0, exp: "Luồng Re-active này dành riêng cho đối tác Fintwin." },
-            { id: 29, q: "Hành động cuối cùng của BE Billing khi xử lý nợ Bãi đỗ (PARK) là gì?", options: ["Gửi SMS cho khách", "Gọi hàm modifyContract sang OCS yêu cầu Active HĐ", "Cập nhật số dư TKGT", "Xóa bản ghi nợ"], a: 1, exp: "Bước quan trọng nhất là đồng bộ sang OCS để khách qua trạm." },
-            { id: 30, q: "HĐ có nguồn chính FUND_ID=7, nguồn phụ FUND_ID=1. Khi ghi nhận BL, hệ thống dựa vào đâu?", options: ["Bất kỳ nguồn Status = 1", "FUND_ID = 7 và kiểm tra trạng thái STATUS 1 hoặc 3", "Chỉ Inactive khi FUND_ID = 1", "Inactive tất cả các nguồn tiền"], a: 1, exp: "Hệ thống kiểm tra ID 7 ở cả nguồn chính (1) hoặc phụ (3)." },
+        // --- NGÂN HÀNG 100 CÂU HỎI CHUYÊN SÂU ---
+        const allQuestions = [
+            // NGHIỆP VỤ CƠ BẢN & ĐỊNH DANH
+            { q: "Mã định danh nguồn tiền (FUND_ID) của đối tác Fintwin trong hệ thống CRM ePass là gì?", options: ["6060", "1", "7", "2"], a: 2, exp: "FUND_ID = 7 là mã định danh duy nhất cho nguồn tiền Fintwin." },
+            { q: "Trạng thái thanh toán trả sau (Active liên kết nguồn trả sau) trên hệ thống ePass được định danh bằng mã nào?", options: ["charge_method = 60", "charge_method = 61", "STATUS = 1", "PROCESSING_STATUS = 2"], a: 1, exp: "Mã 61 định danh cho Hợp đồng Active trả sau. Mã 60 là Inactive." },
+            { q: "Để xác định Fintwin là nguồn tiền thanh toán CHÍNH đang được liên kết, hệ thống kiểm tra điều kiện gì trong bảng CRM.CONTRACT_PAYMENT?", options: ["STATUS = 3 và FUND_ID = 7", "STATUS = 1 và FUND_ID = 7", "STATUS = 2 và FUND_ID = 6060", "CHARGE_METHOD = 61"], a: 1, exp: "STATUS = 1 nghĩa là nguồn chính, STATUS = 3 là nguồn phụ." },
+            
+            // LUỒNG LIÊN KẾT / HUỶ LIÊN KẾT (KIẾN THỨC MỚI)
+            { q: "Khi KH thực hiện liên kết nguồn tiền Fintwin, quy trình lấy thông tin ngân hàng diễn ra ở đâu?", options: ["Khách hàng nhập trực tiếp số thẻ trên App ePass", "FW cung cấp một URL Webview để KH chọn ngân hàng và xác thực", "Nhân viên ePass gọi điện lấy thông tin", "Hệ thống tự động liên kết qua số điện thoại"], a: 1, exp: "App ePass gọi BE -> FW để lấy URL webview cho KH nhập thông tin an toàn." },
+            { q: "Riêng đối với ngân hàng Vietinbank, luồng liên kết và huỷ liên kết Fintwin có điểm gì đặc biệt?", options: ["Không hỗ trợ Vietinbank", "Chỉ thao tác trên Webview của Fintwin", "Webview điều hướng mở App Ipay để KH thực hiện trên App Ngân hàng", "Phải ra quầy giao dịch Vietinbank"], a: 2, exp: "Với Vietinbank, luồng bắt buộc phải mở App Ipay của ngân hàng để thao tác." },
+            { q: "Sau khi KH xác thực liên kết thành công trên Webview, Fintwin sẽ trả token về cho ePass thông qua API nào?", options: ["/transaction/fintwin/blacklist", "/provide-token", "/fintwin/link-success", "/payment/charge"], a: 1, exp: "API IPN trả token liên kết là /provide-token." },
+            { q: "Trong trường hợp IPN liên kết hoặc huỷ liên kết thất bại (do lỗi mạng, timeout), Fintwin sẽ có cơ chế Retry như thế nào?", options: ["Không retry, huỷ luôn giao dịch", "Retry tối đa 5 lần, mỗi lần cách nhau 1 phút", "Retry tối đa 3 lần, mỗi lần cách nhau 5 phút", "Retry liên tục đến khi thành công"], a: 2, exp: "Cơ chế retry chuẩn là tối đa 3 lần, mỗi lần cách nhau 5 phút." },
+            { q: "Lưu ý cực kỳ quan trọng: Khách hàng yêu cầu HUỶ liên kết Fintwin nhưng hệ thống FE trả lỗi code 19. Nguyên nhân do đâu?", options: ["Tài khoản khách hàng đang bị khoá", "Khách hàng có giao dịch chờ thanh toán (đã gửi FW nhưng FW chưa gọi bank)", "Mạng lỗi", "Token đã hết hạn"], a: 1, exp: "Lỗi code 19 (Có GD chờ thanh toán): Không thể huỷ liên kết nếu lệnh đã đẩy sang FW mà chưa có kết quả cuối cùng từ Bank." },
+            
+            // LUỒNG THANH TOÁN (DANTHE, ETC, PARK)
+            { q: "Dịch vụ nào sau đây KHÔNG áp dụng trích nợ tự động qua Fintwin?", options: ["Phí dán/đổi thẻ", "Cước xe qua trạm", "Phí bãi đỗ xe", "Nạp tiền chủ động vào TKGT"], a: 3, exp: "Fintwin dùng để thanh toán cước phí dịch vụ phát sinh, không dùng nạp ví ePass." },
+            { q: "Đối với dịch vụ Phí dán thẻ (DANTHE), nếu FW phản hồi thanh toán thất bại ngay lập tức (lỗi token, hệ thống), giao dịch nợ được lưu vào bảng nào?", options: ["SETTLEMENT.DEBT_TRANSACTION", "CRM.DEBIT_TRANSACTION", "SALE_TRANS", "SETTLEMENT.PARKING_DEBT_TRANSACTION"], a: 1, exp: "Nợ phí dán thẻ luôn được quản lý ở bảng CRM.DEBIT_TRANSACTION." },
+            { q: "Tại sao giao dịch xe qua trạm (ETC) lại sinh CDR vào bảng SETTLEMENT.CDR_SUCCESS_TOLL_COLLECTION trước khi gọi trừ tiền Fintwin?", options: ["Vì FW yêu cầu như vậy", "Để cho xe qua trạm ngay lập tức (trả sau), tránh ùn tắc, sau đó đồng bộ truy thu", "Do lỗi đồng bộ hệ thống", "Để chờ khách hàng xác nhận"], a: 1, exp: "Nghiệp vụ ETC ưu tiên tốc độ barie. Cho qua trước (sinh CDR), thu tiền sau." },
+            { q: "Thủ tục quét dữ liệu định kỳ (Job Sync) đẩy giao dịch từ CDR_SUCCESS_TOLL_COLLECTION sang DEBT_TRANSACTION chạy với tần suất bao lâu trên môi trường Production?", options: ["10 phút/lần", "1 tiếng/lần", "1 phút/lần", "Chỉ chạy cuối ngày"], a: 2, exp: "Trên Production, Job đồng bộ chạy 1 phút/lần để đảm bảo thu tiền nhanh nhất." },
+            { q: "Trạng thái IS_SYNC = 7 trong bảng CDR_SUCCESS_TOLL_COLLECTION có ý nghĩa gì?", options: ["Giao dịch bị lỗi", "Giao dịch đã được quét và đẩy sang bảng quản lý nợ DEBT_TRANSACTION thành công", "Đã thanh toán thành công", "Đã gửi vào Blacklist"], a: 1, exp: "IS_SYNC = 7 là cờ báo hiệu bản ghi CDR đã được đẩy vào luồng thu nợ." },
+            { q: "Trong bảng SETTLEMENT.DEBT_TRANSACTION (ETC), mã RECOVERY_STATUS = 11 biểu thị điều gì?", options: ["Giao dịch nợ mới tạo", "Lỗi kết nối API", "Thanh toán/Truy thu thành công", "Bị đưa vào Blacklist"], a: 2, exp: "RECOVERY_STATUS = 11 là trạng thái thành công sau khi gọi Payment." },
+            { q: "Khi Service bãi đỗ (PARK) gọi thanh toán FW thất bại do hết tiền, hệ thống sẽ xử lý luồng tiếp theo như thế nào?", options: ["Ghi nợ Blacklist và khoá HĐ ngay lập tức", "Không cho xe ra khỏi bãi", "Chuyển hướng sang luồng thanh toán qua QR Code hoặc Tiền mặt", "Retry gọi FW liên tục"], a: 2, exp: "Bãi đỗ yêu cầu thu tiền tại chỗ, nếu FW lỗi sẽ linh hoạt chuyển sang QR/Tiền mặt." },
+
+            // LUỒNG GHI NHẬN BLACKLIST
+            { q: "Fintwin thực hiện gọi lệnh thanh toán sang Ngân hàng của khách (Batch job) vào các khung giờ nào hàng ngày?", options: ["0h00 và 12h00", "8h00 và 15h00", "10h00 và 16h00", "23h59"], a: 1, exp: "FW gom GD chạy batch 2 lần: 8h sáng (cho GD chiều hôm trước) và 15h (cho GD sáng nay)." },
+            { q: "Khi Fintwin gọi Bank thất bại, hệ thống FW sẽ gửi danh sách Blacklist sang ePass qua API nào?", options: ["/provide-token", "/payment/charge", "/transaction/fintwin/blacklist", "/ipn/clear-debt"], a: 2, exp: "API nhận Blacklist hàng ngày từ đối tác là /transaction/fintwin/blacklist." },
+            { q: "Trong luồng nhận Blacklist dịch vụ DANTHE, CRM yêu cầu giao dịch trong bảng SALE_TRANS.SALE_TRANS_CODE phải có STATUS bằng mấy?", options: ["STATUS = 1", "STATUS = 2", "STATUS = 3", "PROCESSING_STATUS = 1"], a: 1, exp: "STATUS = 2 (Đã gửi lệnh thanh toán thành công sang FW) thì mới có thể bị FW báo lỗi Blacklist." },
+            { q: "Khi nhận Blacklist (bất kể dịch vụ nào), hành động mang tính 'chặn rủi ro' quan trọng nhất mà hệ thống ePass/OCS thực hiện là gì?", options: ["Nhắn tin doạ kiện khách hàng", "In-active trạng thái liên kết của HĐ (charge_method = 61 -> 60)", "Huỷ luôn liên kết Fintwin", "Chặn biển số xe trên toàn quốc"], a: 1, exp: "Hệ thống khoá charge_method về 60 để chặn khách hàng tiếp tục đi qua trạm gây nợ xấu." },
+            { q: "Blacklist dịch vụ Bãi đỗ (PARK) cập nhật PROCESSING_STATUS về giá trị nào trong bảng PARKING_DEBT_TRANSACTIONS?", options: ["1", "2", "3", "21"], a: 1, exp: "PROCESSING_STATUS = 2 nghĩa là Giao dịch nợ cần hỗ trợ truy thu (Blacklist bãi đỗ)." },
+            { q: "Câu bẫy logic: Nếu tồn tại giao dịch đang ở trong Blacklist, nhưng do lỗi bất đồng bộ, hệ thống ePass VẪN giữ trạng thái HĐ là 61 và VẪN gửi request thanh toán mới sang FW. Kết quả sẽ ra sao?", options: ["FW vẫn trừ tiền bình thường", "FW khoá luôn tài khoản ngân hàng của KH", "FW sẽ TRẢ LỖI TỪ CHỐI cho tới khi KHÔNG CÒN giao dịch Blacklist nào", "Hệ thống ePass sập"], a: 2, exp: "Cơ chế phòng vệ của FW: Chặn mọi request mới nếu phát hiện user đang có nợ xấu chưa thanh toán." },
+
+            // LUỒNG IPN (GẠCH NỢ) & RE-ACTIVE (KIẾN THỨC MỚI & CŨ)
+            { q: "Có bao nhiêu phương thức IPN (ipnType) chính để gạch nợ (xoá giao dịch khỏi Blacklist)?", options: ["1 (Chỉ qua App ePass)", "3 (App, Web, SMS)", "2 (BLACKLIST_PAYMENT_SUCCESS và QR_PAYMENT)", "Không có phương thức nào"], a: 2, exp: "1. FW chủ động thu được từ Bank (BLACKLIST_PAYMENT_SUCCESS). 2. KH tự trả qua QR (QR_PAYMENT)." },
+            { q: "Khách hàng nợ cước Bãi đỗ (PARK) và thanh toán nợ gốc thành công qua IPN loại 'FULL_REFUND'. Hệ thống cập nhật PAYMENT_METHOD_ID bằng bao nhiêu?", options: ["1", "2", "3", "4"], a: 2, exp: "Theo tài liệu PARK: Blacklist_Success = 1, QR = 2, FULL_REFUND = 3." },
+            { q: "Sau khi nhận IPN gạch nợ thành công cho 1 giao dịch DANTHE, hệ thống ePass CÓ lập tức mở khoá (Re-active 60->61) hợp đồng không?", options: ["Có, mở ngay lập tức", "Không, hệ thống phải truy vấn kiểm tra xem còn nợ Blacklist xe qua trạm hoặc bãi đỗ không. Chỉ SẠCH TOÀN BỘ NỢ mới mở.", "Không, phải đợi qua 24h", "Chỉ mở khi khách gọi tổng đài"], a: 1, exp: "Thuật toán Cross-debt check (Kiểm tra nợ chéo) bắt buộc sạch nợ cả 3 bảng mới gọi OCS Re-active." },
+            { q: "Trong quá trình quét nợ chéo để Re-active, bảng nào dùng để kiểm tra nợ Blacklist của dịch vụ ETC?", options: ["CRM.DEBIT_TRANSACTION (PROCESSING_STATUS=1)", "SETTLEMENT.PARKING_DEBT_TRANSACTIONS (PROCESSING_STATUS=2)", "SETTLEMENT.DEBT_TRANSACTION (PROCESSING_STATUS=21, FUND_ID=7)", "SALE_TRANS"], a: 2, exp: "Nợ ETC được lưu trong SETTLEMENT.DEBT_TRANSACTION với PS=21." },
+            { q: "Khi thoả mãn điều kiện Sạch nợ, hệ thống nào chịu trách nhiệm Call hàm 'modifyContract' sang OCS để cập nhật charge_method 60 -> 61?", options: ["Chỉ duy nhất BE CRM", "Fintwin gọi trực tiếp OCS", "Hệ thống BE Bất thường / BE Billing (tuỳ luồng dịch vụ)", "App ePass của khách hàng"], a: 2, exp: "Hệ thống Core Billing/Bất thường sẽ xử lý việc gọi OCS, sau đó trả kết quả về CRM đồng bộ." },
+
+            // CÂU HỎI TÌNH HUỐNG THỰC TẾ (NÂNG CAO)
+            { q: "Tình huống: Khách hàng A đang nợ 1 phí dán thẻ. Sáng nay KH đi qua trạm (HĐ đang 60 nên bị chặn). Buổi trưa KH quét QR trả nợ phí dán thẻ thành công. Trạng thái HĐ lúc 13h chiều là gì?", options: ["60 (Vì chưa qua 24h)", "61 (Đã hết nợ, Re-active thành công)", "Bị khoá vĩnh viễn", "Đang chờ duyệt"], a: 1, exp: "Do không phát sinh nợ ETC (vì bị chặn sáng nay), trả xong nợ Danthe là sạch nợ -> Mở 61." },
+            { q: "Tình huống: KH yêu cầu huỷ liên kết Fintwin. API trả về mã lỗi 19. Nhân viên CSKH cần giải thích cho KH như thế nào?", options: ["Hệ thống ngân hàng đang bảo trì", "Tài khoản quý khách bị khoá do vi phạm", "Quý khách đang có giao dịch cước phí đang chờ Fintwin thanh toán với Ngân hàng. Vui lòng thử lại sau khi giao dịch hoàn tất.", "Mã OTP nhập sai"], a: 2, exp: "Mã 19 sinh ra từ FE khi check thấy GD Pending chưa có end-state từ FW." },
+            { q: "Một giao dịch nợ ETC có RECOVERY_STATUS = 14 trong bảng DEBT_TRANSACTION. Hướng xử lý của Vận hành là gì?", options: ["Bỏ qua vì đã thanh toán xong", "Đây là lỗi từ chối thanh toán không xác định hoặc lỗi PTTT. Cần kiểm tra log, có thể đưa vào luồng quét lại hoặc xử lý Blacklist.", "Báo Công an", "Hoàn tiền cho khách"], a: 1, exp: "RECOVERY_STATUS = 14 gom các lỗi Status 5 hoặc lỗi chưa rõ, cần review." },
+            { q: "Rủi ro lớn nhất (Race Condition) nếu khách hàng vừa thanh toán QR Code (IPN QR_PAYMENT), vừa đúng lúc Fintwin quét Batch thành công và gửi IPN (BLACKLIST_PAYMENT_SUCCESS) cho CÙNG 1 mã orderId là gì?", options: ["OCS bị quá tải", "Giao dịch không được gạch nợ", "Xung đột ghi đè dữ liệu, có thể dẫn đến lệch báo cáo doanh thu nếu không có cơ chế Database Lock chặt chẽ.", "Ngân hàng bị trừ tiền gấp 3"], a: 2, exp: "Xử lý đa luồng (Concurrency) yêu cầu Lock bản ghi khi nhận IPN để tránh update 2 lần." },
+            { q: "Khách hàng liên kết 2 nguồn tiền: FW (Nguồn chính - STATUS 1) và Viettel Money (Nguồn phụ - STATUS 3). Khi Fintwin báo lỗi Blacklist, hợp đồng sẽ bị khoá (60). Khách hàng có dùng Viettel Money để qua trạm được không?", options: ["Được, vì Viettel Money không lỗi", "Không, charge_method của toàn bộ HĐ đã bị set về 60 (Inactive) trên OCS.", "Chỉ đi được ở cao tốc Pháp Vân", "Hệ thống tự động xoá Fintwin"], a: 1, exp: "Khoá charge_method 60 là khoá cấp độ Hợp đồng trên OCS, chặn mọi luồng qua trạm." }
         ];
 
+        // --- CÁC HÀM TIỆN ÍCH ---
+        const shuffleArray = (arr) => [...arr].sort(() => Math.random() - 0.5);
+
+        // Trộn options và lưu lại index của đáp án đúng mới
+        const processQuestions = (questionsPool, count) => {
+            const selected = shuffleArray(questionsPool).slice(0, count);
+            return selected.map(q => {
+                const optionsWithCorrectness = q.options.map((opt, index) => ({
+                    text: opt,
+                    isCorrect: index === q.a
+                }));
+                const shuffledOptions = shuffleArray(optionsWithCorrectness);
+                const newCorrectIndex = shuffledOptions.findIndex(o => o.isCorrect);
+                return {
+                    ...q,
+                    options: shuffledOptions.map(o => o.text),
+                    a: newCorrectIndex
+                };
+            });
+        };
+
+        const formatTime = (seconds) => {
+            const m = Math.floor(seconds / 60);
+            const s = seconds % 60;
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        };
+
         function App() {
-            const [screen, setScreen] = useState('intro'); // intro, name, quiz, result, review, admin, admin-login
+            const [screen, setScreen] = useState('intro'); // intro, quiz, result, review, admin-login, admin
             const [userName, setUserName] = useState('');
             const [questions, setQuestions] = useState([]);
             const [currentIdx, setCurrentIdx] = useState(0);
             const [userAnswers, setUserAnswers] = useState({});
-            const [timeLeft, setTimeLeft] = useState(30 * 60);
+            
+            // Cấu hình bài thi
+            const EXAM_TIME = 45 * 60; // 45 phút
+            const QUESTION_COUNT = 30;
+            const ADMIN_PASS = '230696';
+
+            const [timeLeft, setTimeLeft] = useState(EXAM_TIME);
             const [isFinished, setIsFinished] = useState(false);
-            const [adminPass, setAdminPass] = useState('');
-            const [allResults, setAllResults] = useState([]);
+            
+            // Bắt gian lận
+            const [cheatCount, setCheatCount] = useState(0);
+            const [showCheatWarning, setShowCheatWarning] = useState(false);
+            const isExamActive = screen === 'quiz' && !isFinished;
 
-            // Xáo trộn câu hỏi
-            const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
+            // Admin state
+            const [adminPassInput, setAdminPassInput] = useState('');
+            const [adminData, setAdminData] = useState([]);
+            const [sortFilter, setSortFilter] = useState('date_desc'); // date_desc, score_desc, time_asc
 
-            // Timer logic
+            // --- XỬ LÝ GIAN LẬN (CHUYỂN TAB) ---
+            useEffect(() => {
+                const handleBlur = () => {
+                    if (isExamActive && !showCheatWarning) {
+                        setCheatCount(prev => prev + 1);
+                        setShowCheatWarning(true);
+                    }
+                };
+                window.addEventListener('blur', handleBlur);
+                return () => window.removeEventListener('blur', handleBlur);
+            }, [isExamActive, showCheatWarning]);
+
+            // --- TIMER ---
             useEffect(() => {
                 let timer;
-                if (screen === 'quiz' && timeLeft > 0 && !isFinished) {
+                if (isExamActive && timeLeft > 0) {
                     timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
-                } else if (timeLeft === 0 && screen === 'quiz') {
-                    alert("Đã hết 30 phút làm bài!");
-                    handleFinish();
+                } else if (timeLeft === 0 && isExamActive) {
+                    alert("ĐÃ HẾT 45 PHÚT LÀM BÀI! Hệ thống sẽ tự động nộp bài.");
+                    finishExam();
                 }
                 return () => clearInterval(timer);
-            }, [screen, timeLeft, isFinished]);
+            }, [isExamActive, timeLeft]);
 
-            const handleStart = () => {
-                if (!userName.trim()) return alert("Vui lòng nhập tên!");
-                setQuestions(shuffle(rawQuestions));
+            const startExam = () => {
+                if (!userName.trim()) return alert("Vui lòng nhập đầy đủ Họ và Tên!");
+                // Lấy 30 câu ngẫu nhiên từ pool (nếu pool < 30 thì lấy hết pool)
+                const poolSize = Math.min(QUESTION_COUNT, allQuestions.length);
+                setQuestions(processQuestions(allQuestions, poolSize));
+                setUserAnswers({});
+                setCurrentIdx(0);
+                setTimeLeft(EXAM_TIME);
+                setCheatCount(0);
+                setIsFinished(false);
                 setScreen('quiz');
             };
 
-            const handleFinish = async () => {
+            const finishExam = async () => {
                 setIsFinished(true);
-                alert("Chúc mừng! Bạn đã hoàn thành bài kiểm tra.");
-                
                 const score = questions.reduce((acc, q, idx) => acc + (userAnswers[idx] === q.a ? 1 : 0), 0);
-                const result = {
-                    name: userName,
+                const timeSpent = EXAM_TIME - timeLeft;
+                const dateIso = new Date().toISOString();
+                
+                const resultRecord = {
+                    name: userName.trim(),
                     score: score,
                     total: questions.length,
-                    time: 1800 - timeLeft,
-                    date: new Date().toLocaleString('vi-VN'),
+                    timeSpent: timeSpent,
+                    cheatCount: cheatCount,
+                    timestamp: dateIso,
                     details: questions.map((q, idx) => ({
                         question: q.q,
-                        userChoice: q.options[userAnswers[idx]] || "Chưa chọn",
+                        userChoice: q.options[userAnswers[idx]] || "Chưa làm",
                         correctChoice: q.options[q.a],
                         isCorrect: userAnswers[idx] === q.a
                     }))
                 };
 
-                // Lưu vào database thực tế nếu có Firebase, nếu không lưu vào LocalStorage để test
+                // Lưu dữ liệu
                 if (db) {
-                    await db.collection("quiz_results").add(result);
+                    try {
+                        await db.collection("fintwin_exams").add(resultRecord);
+                    } catch(e) { console.error("Firebase save error:", e); }
                 } else {
-                    const local = JSON.parse(localStorage.getItem('fintwin_results') || '[]');
-                    local.push(result);
-                    localStorage.setItem('fintwin_results', JSON.stringify(local));
+                    const local = JSON.parse(localStorage.getItem('fintwin_exam_records') || '[]');
+                    local.push(resultRecord);
+                    localStorage.setItem('fintwin_exam_records', JSON.stringify(local));
                 }
+
                 setScreen('result');
             };
 
             const loadAdminData = async () => {
+                let data = [];
                 if (db) {
-                    const snap = await db.collection("quiz_results").get();
-                    setAllResults(snap.docs.map(doc => doc.data()));
+                    try {
+                        const snap = await db.collection("fintwin_exams").get();
+                        data = snap.docs.map(doc => doc.data());
+                    } catch(e) { console.error("Load admin error:", e); }
                 } else {
-                    setAllResults(JSON.parse(localStorage.getItem('fintwin_results') || '[]'));
+                    data = JSON.parse(localStorage.getItem('fintwin_exam_records') || '[]');
                 }
+                setAdminData(data);
                 setScreen('admin');
             };
 
+            // Sorting logic for Admin
+            const sortedAdminData = useMemo(() => {
+                const arr = [...adminData];
+                if (sortFilter === 'score_desc') return arr.sort((a, b) => b.score - a.score);
+                if (sortFilter === 'time_asc') return arr.sort((a, b) => a.timeSpent - b.timeSpent);
+                // default date_desc
+                return arr.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            }, [adminData, sortFilter]);
+
+            // --- RENDER VIEWS ---
+
             if (screen === 'intro') return (
-                <div className="min-h-screen flex items-center justify-center p-4 bg-indigo-700 text-white text-center">
-                    <div className="max-w-md w-full">
-                        <h1 className="text-4xl font-black mb-6 uppercase">E-Learning ePass</h1>
-                        <p className="mb-8 opacity-80">Chào mừng bạn đến với kỳ thi sát hạch Fintwin. Vui lòng nhập thông tin để bắt đầu.</p>
-                        <input type="text" value={userName} onChange={e => setUserName(e.target.value)} placeholder="Nhập Họ tên nhân sự..." className="w-full p-4 rounded-xl text-gray-900 font-bold mb-4 outline-none" />
-                        <button onClick={handleStart} className="w-full bg-orange-500 hover:bg-orange-600 py-4 rounded-xl font-bold text-xl shadow-lg transition">BẮT ĐẦU THI</button>
-                        <button onClick={() => setScreen('admin-login')} className="mt-12 text-indigo-300 text-sm hover:underline">Dành cho Admin</button>
-                    </div>
-                </div>
-            );
+                <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-800 to-slate-900 text-white">
+                    <div className="max-w-md w-full glass-panel rounded-3xl p-8 shadow-2xl text-slate-800 text-center">
+                        <div className="bg-blue-600 text-white w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+                            <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </div>
+                        <h1 className="text-2xl font-black mb-2 uppercase tracking-tight text-slate-800">BÀI KIỂM TRA NGHIỆP VỤ THANH TOÁN FINTWIN</h1>
+                        <p className="text-sm text-slate-500 mb-8 font-medium">Bao gồm IPN, Blacklist, Quy trình Liên kết & Xử lý OCS.</p>
+                        
+                        <div className="space-y-4 mb-8 text-left bg-slate-50 p-4 rounded-xl border border-slate-100">
+                            <p className="text-sm font-bold text-slate-700">⏱ Thời gian: <span className="text-blue-600 font-black">45 Phút</span></p>
+                            <p className="text-sm font-bold text-slate-700">📝 Số lượng: <span className="text-blue-600 font-black">{Math.min(QUESTION_COUNT, allQuestions.length)} Câu hỏi ngẫu nhiên</span></p>
+                            <p className="text-xs text-red-500 font-bold mt-2">⚠️ Lưu ý: Hệ thống có ghi nhận số lần thoát/chuyển tab trong quá trình làm bài.</p>
+                        </div>
 
-            if (screen === 'admin-login') return (
-                <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-                    <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-xs text-center">
-                        <h2 className="font-bold mb-4">NHẬP MẬT MÃ ADMIN</h2>
-                        <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="w-full border p-3 rounded-lg mb-4 text-center" />
-                        <button onClick={() => adminPass === '1234' ? loadAdminData() : alert("Sai pass!")} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold">XÁC NHẬN</button>
-                        <button onClick={() => setScreen('intro')} className="mt-4 text-gray-400 text-sm">Quay lại</button>
-                    </div>
-                </div>
-            );
-
-            if (screen === 'admin') return (
-                <div className="p-4 md:p-8 max-w-5xl mx-auto">
-                    <div className="flex justify-between items-center mb-8">
-                        <h1 className="text-2xl font-black">DANH SÁCH KẾT QUẢ THI</h1>
-                        <button onClick={() => setScreen('intro')} className="bg-gray-200 px-4 py-2 rounded-lg font-bold">ĐĂNG XUẤT</button>
-                    </div>
-                    <div className="space-y-4">
-                        {allResults.map((r, i) => (
-                            <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border flex justify-between items-center">
-                                <div>
-                                    <p className="font-black text-indigo-600">{r.name}</p>
-                                    <p className="text-xs text-gray-400">{r.date}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-2xl font-black">{r.score}/{r.total}</p>
-                                    <p className="text-xs text-green-500 font-bold">{Math.round((r.score/r.total)*100)}%</p>
-                                </div>
-                            </div>
-                        ))}
-                        {allResults.length === 0 && <p className="text-center text-gray-400">Chưa có kết quả nào.</p>}
+                        <input 
+                            type="text" value={userName} onChange={e => setUserName(e.target.value)} 
+                            placeholder="Nhập Họ & Tên của bạn..." 
+                            className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-blue-600 outline-none font-bold text-center mb-4 transition"
+                        />
+                        <button 
+                            onClick={startExam} disabled={!userName.trim()} 
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-black text-lg shadow-lg disabled:opacity-50 transition active:scale-95"
+                        >
+                            BẮT ĐẦU LÀM BÀI
+                        </button>
+                        
+                        <button onClick={() => setScreen('admin-login')} className="mt-6 text-xs text-slate-400 font-bold hover:text-slate-600 uppercase tracking-widest">
+                            Quản trị viên
+                        </button>
                     </div>
                 </div>
             );
@@ -195,28 +270,82 @@
             if (screen === 'quiz') {
                 const q = questions[currentIdx];
                 return (
-                    <div className="min-h-screen flex flex-col bg-gray-50">
-                        <header className="bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-10">
-                            <span className="font-bold text-gray-400">Câu {currentIdx + 1}/{questions.length}</span>
-                            <div className="bg-indigo-100 text-indigo-700 px-4 py-1 rounded-full font-mono font-black text-xl">
-                                {Math.floor(timeLeft/60)}:{(timeLeft%60).toString().padStart(2, '0')}
-                            </div>
-                            <button onClick={() => window.confirm("Nộp bài sớm?") && handleFinish()} className="bg-orange-500 text-white px-4 py-1 rounded-lg font-bold">NỘP BÀI</button>
-                        </header>
-                        <main className="flex-1 p-4 md:p-8 max-w-3xl mx-auto w-full">
-                            <h2 className="text-xl font-bold mb-8 leading-relaxed text-gray-800">{q.q}</h2>
-                            <div className="space-y-4">
-                                {q.options.map((opt, i) => (
-                                    <button key={i} onClick={() => setUserAnswers({...userAnswers, [currentIdx]: i})} className={`w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center gap-4 ${userAnswers[currentIdx] === i ? 'border-indigo-600 bg-indigo-50 shadow-md' : 'border-gray-100 bg-white'}`}>
-                                        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${userAnswers[currentIdx] === i ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}>{String.fromCharCode(65+i)}</span>
-                                        <span className="font-semibold text-gray-700">{opt}</span>
+                    <div className="min-h-screen flex flex-col relative">
+                        {/* Cảnh báo gian lận Popup */}
+                        {showCheatWarning && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                                <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl danger-stripes border-4 border-red-500">
+                                    <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                    </div>
+                                    <h2 className="text-2xl font-black text-red-700 mb-2 uppercase">Cảnh báo vi phạm!</h2>
+                                    <p className="text-sm font-bold text-red-900 mb-6">Bạn vừa chuyển tab hoặc thu nhỏ trình duyệt. Hành động này đã được hệ thống ghi nhận lại.</p>
+                                    <button onClick={() => setShowCheatWarning(false)} className="bg-red-600 text-white w-full py-4 rounded-xl font-black uppercase shadow-lg hover:bg-red-700 active:scale-95 transition">
+                                        Tôi đã hiểu và cam kết không tái phạm
                                     </button>
-                                ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <header className="bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-10 border-b border-slate-200">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-slate-800 text-white w-10 h-10 rounded-xl flex items-center justify-center font-black shadow-md">{currentIdx + 1}</div>
+                                <div className="hidden sm:block">
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Thí sinh</p>
+                                    <p className="text-sm font-black text-slate-700 truncate max-w-[150px]">{userName}</p>
+                                </div>
+                            </div>
+                            <div className={`font-mono text-2xl font-black px-4 py-1 rounded-lg ${timeLeft < 300 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-blue-50 text-blue-700'}`}>
+                                {formatTime(timeLeft)}
+                            </div>
+                            <button onClick={() => window.confirm("Bạn có chắc chắn muốn nộp bài ngay?") && finishExam()} className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-md transform active:scale-95 transition">
+                                NỘP BÀI
+                            </button>
+                        </header>
+
+                        <main className="flex-1 p-4 md:p-8 max-w-4xl mx-auto w-full">
+                            <div className="w-full bg-slate-200 h-2 rounded-full mb-8 overflow-hidden">
+                                <div className="bg-blue-500 h-full transition-all duration-300" style={{ width: `${((currentIdx + 1) / questions.length) * 100}%` }}></div>
+                            </div>
+
+                            <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-100 mb-8">
+                                <h2 className="text-xl md:text-2xl font-bold text-slate-800 leading-relaxed">
+                                    {q.q}
+                                </h2>
+                            </div>
+                            
+                            <div className="space-y-3">
+                                {q.options.map((opt, i) => {
+                                    const isSelected = userAnswers[currentIdx] === i;
+                                    return (
+                                        <button
+                                            key={i} onClick={() => setUserAnswers({...userAnswers, [currentIdx]: i})}
+                                            className={`w-full p-5 rounded-2xl border-2 text-left transition-all flex items-start gap-4 ${isSelected ? 'border-blue-600 bg-blue-50 shadow-md ring-1 ring-blue-600' : 'border-slate-200 hover:border-blue-300 bg-white hover:shadow-sm'}`}
+                                        >
+                                            <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-black text-sm mt-0.5 transition-colors ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                                {String.fromCharCode(65 + i)}
+                                            </div>
+                                            <span className={`font-semibold leading-relaxed ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>{opt}</span>
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </main>
-                        <footer className="p-4 bg-white border-t flex justify-between max-w-3xl mx-auto w-full">
-                            <button onClick={() => setCurrentIdx(Math.max(0, currentIdx-1))} className="text-gray-400 font-bold">Trở lại</button>
-                            <button onClick={() => currentIdx < questions.length - 1 ? setCurrentIdx(currentIdx+1) : handleFinish()} className="text-indigo-600 font-bold">{currentIdx === questions.length - 1 ? "Kết thúc" : "Tiếp tục"}</button>
+
+                        <footer className="p-4 bg-white border-t border-slate-200 flex justify-between items-center sticky bottom-0 z-10">
+                            <button disabled={currentIdx === 0} onClick={() => setCurrentIdx(prev => prev - 1)} className="px-6 py-3 font-bold text-slate-500 disabled:opacity-30 hover:bg-slate-50 rounded-xl transition">
+                                &larr; Câu trước
+                            </button>
+                            
+                            <div className="hidden md:flex gap-1.5 overflow-x-auto px-4 max-w-[50%] no-scrollbar">
+                                {questions.map((_, i) => (
+                                    <div key={i} className={`w-2.5 h-2.5 rounded-full transition-all ${currentIdx === i ? 'bg-blue-600 scale-150' : userAnswers[i] !== undefined ? 'bg-blue-300' : 'bg-slate-200'}`}></div>
+                                ))}
+                            </div>
+
+                            <button disabled={currentIdx === questions.length - 1} onClick={() => setCurrentIdx(prev => prev + 1)} className="px-6 py-3 font-bold text-blue-600 disabled:opacity-30 hover:bg-blue-50 rounded-xl transition">
+                                Câu sau &rarr;
+                            </button>
                         </footer>
                     </div>
                 );
@@ -224,44 +353,170 @@
 
             if (screen === 'result') {
                 const score = questions.reduce((acc, q, idx) => acc + (userAnswers[idx] === q.a ? 1 : 0), 0);
+                const percent = Math.round((score / questions.length) * 100);
+                const point10 = ((score / questions.length) * 10).toFixed(1);
+
                 return (
-                    <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full text-center">
-                            <h1 className="text-2xl font-black mb-2 text-[#6200EA]">KẾT QUẢ CỦA BẠN</h1>
-                            <p className="text-gray-400 mb-8 font-bold">{userName}</p>
-                            <div className="text-6xl font-black text-indigo-600 mb-2">{score}/{questions.length}</div>
-                            <p className="font-bold text-green-500 mb-8">{Math.round((score/questions.length)*100)}% Chính xác</p>
-                            <button onClick={() => setScreen('review')} className="w-full bg-gray-100 text-indigo-600 font-bold py-4 rounded-xl mb-4">XEM CHI TIẾT ĐÁP ÁN</button>
-                            <button onClick={() => window.location.reload()} className="w-full border-2 border-indigo-600 text-indigo-600 font-bold py-4 rounded-xl">THI LẠI</button>
+                    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
+                        <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl relative overflow-hidden text-center">
+                            <div className="absolute top-0 left-0 w-full h-32 bg-blue-600"></div>
+                            
+                            <div className="relative z-10">
+                                <div className="w-24 h-24 bg-white rounded-full mx-auto flex items-center justify-center shadow-xl mb-4 border-4 border-white text-blue-600">
+                                    <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path></svg>
+                                </div>
+                                <h1 className="text-2xl font-black mb-1 uppercase text-slate-800">Hoàn thành bài thi</h1>
+                                <p className="text-slate-500 font-bold mb-8">{userName}</p>
+                                
+                                <div className="grid grid-cols-2 gap-4 mb-8">
+                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Điểm hệ 10</p>
+                                        <p className="text-3xl font-black text-blue-600">{point10}</p>
+                                    </div>
+                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Số câu đúng</p>
+                                        <p className="text-3xl font-black text-emerald-500">{score}/{questions.length}</p>
+                                    </div>
+                                </div>
+
+                                {cheatCount > 0 && (
+                                    <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-bold mb-6 border border-red-100 flex items-center justify-center gap-2">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                        Ghi nhận {cheatCount} lần thoát khỏi trang!
+                                    </div>
+                                )}
+
+                                <button onClick={() => setScreen('review')} className="w-full bg-slate-800 hover:bg-slate-900 text-white font-black py-4 rounded-xl transition active:scale-95 shadow-lg uppercase tracking-wide">
+                                    Xem chi tiết đáp án
+                                </button>
+                                {/* ĐÃ XOÁ NÚT THI LẠI THEO YÊU CẦU */}
+                            </div>
                         </div>
                     </div>
                 );
             }
 
             if (screen === 'review') return (
-                <div className="max-w-3xl mx-auto p-4 py-12">
-                    <div className="flex justify-between items-center mb-8">
-                        <h1 className="text-3xl font-black">GIẢI THÍCH ĐÁP ÁN</h1>
-                        <button onClick={() => setScreen('result')} className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold">Quay lại</button>
+                <div className="min-h-screen bg-slate-100 flex flex-col">
+                    <header className="bg-white p-6 shadow-sm flex justify-between items-center sticky top-0 z-20 border-b border-slate-200">
+                        <h1 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tight">Chi tiết bài làm</h1>
+                        <button onClick={() => setScreen('result')} className="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold shadow-md">Đóng</button>
+                    </header>
+                    <main className="max-w-4xl mx-auto w-full p-4 md:p-6 space-y-6">
+                        {questions.map((q, idx) => {
+                            const isCorrect = userAnswers[idx] === q.a;
+                            return (
+                                <div key={idx} className={`bg-white rounded-[2rem] p-6 md:p-8 shadow-sm border-l-[12px] ${isCorrect ? 'border-emerald-500' : 'border-red-500'}`}>
+                                    <div className="flex justify-between items-start mb-6">
+                                        <p className="font-bold text-lg text-slate-800 leading-snug">Câu {idx + 1}: {q.q}</p>
+                                    </div>
+                                    <div className="space-y-3 mb-6">
+                                        {q.options.map((opt, i) => {
+                                            const isSelected = userAnswers[idx] === i;
+                                            const isTrueAns = q.a === i;
+                                            let style = 'bg-slate-50 border-slate-100 text-slate-500';
+                                            if (isTrueAns) style = 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-1 ring-emerald-500';
+                                            else if (isSelected) style = 'bg-red-50 border-red-200 text-red-700';
+
+                                            return (
+                                                <div key={i} className={`p-4 rounded-xl text-sm font-semibold border-2 flex items-start gap-3 ${style}`}>
+                                                    <span className="shrink-0 mt-0.5">{String.fromCharCode(65 + i)}.</span>
+                                                    <span>{opt}</span>
+                                                    {isTrueAns && <svg className="w-5 h-5 ml-auto text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>}
+                                                    {isSelected && !isTrueAns && <svg className="w-5 h-5 ml-auto text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"></path></svg>}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="bg-amber-50 p-5 rounded-2xl border border-amber-100 text-sm text-amber-900 leading-relaxed">
+                                        <strong className="block uppercase text-[10px] tracking-widest mb-1 text-amber-600 font-black">Giải thích nghiệp vụ</strong> 
+                                        {q.exp}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </main>
+                </div>
+            );
+
+            // --- QUẢN TRỊ VIÊN ---
+            if (screen === 'admin-login') return (
+                <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+                    <div className="bg-white p-8 rounded-[2rem] shadow-2xl w-full max-w-xs text-center">
+                        <div className="w-16 h-16 bg-slate-100 text-slate-800 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                        </div>
+                        <h2 className="font-black mb-6 uppercase tracking-widest text-slate-800">Cổng Quản Trị</h2>
+                        <input type="password" value={adminPassInput} onChange={e => setAdminPassInput(e.target.value)} className="w-full border-2 border-slate-200 focus:border-slate-800 p-4 rounded-xl mb-4 text-center font-bold outline-none" placeholder="Mật mã..." />
+                        <button onClick={() => adminPassInput === ADMIN_PASS ? loadAdminData() : alert("Sai mật mã!")} className="w-full bg-slate-800 text-white py-4 rounded-xl font-black shadow-lg hover:bg-slate-900 transition">XÁC NHẬN</button>
+                        <button onClick={() => setScreen('intro')} className="mt-6 text-slate-400 text-xs font-bold uppercase tracking-widest">Trở về trang chủ</button>
                     </div>
-                    {questions.map((q, idx) => {
-                        const isCorrect = userAnswers[idx] === q.a;
-                        return (
-                            <div key={idx} className={`bg-white rounded-3xl shadow-sm p-8 mb-6 border-l-8 ${isCorrect ? 'border-green-500' : 'border-red-500'}`}>
-                                <p className="font-bold text-gray-800 mb-6">{idx + 1}. {q.q}</p>
-                                <div className="space-y-2 mb-6 text-sm">
-                                    {q.options.map((opt, i) => (
-                                        <div key={i} className={`p-3 rounded-xl border ${i === q.a ? 'bg-green-50 border-green-200 text-green-700 font-bold' : userAnswers[idx] === i ? 'bg-red-50 border-red-200 text-red-700' : 'bg-gray-50'}`}>
-                                            {String.fromCharCode(65+i)}. {opt}
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="bg-indigo-50 p-4 rounded-2xl text-xs text-indigo-800 italic">
-                                    <strong>Ghi chú:</strong> {q.exp}
-                                </div>
+                </div>
+            );
+
+            if (screen === 'admin') return (
+                <div className="min-h-screen bg-slate-50 p-4 md:p-8">
+                    <div className="max-w-7xl mx-auto">
+                        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                            <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Thống kê kết quả thi ({adminData.length})</h1>
+                            
+                            <div className="flex items-center gap-4 w-full md:w-auto">
+                                <select 
+                                    value={sortFilter} 
+                                    onChange={(e) => setSortFilter(e.target.value)}
+                                    className="p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none bg-white shadow-sm flex-1 md:w-48"
+                                >
+                                    <option value="date_desc">Mới nhất trước</option>
+                                    <option value="score_desc">Điểm cao nhất</option>
+                                    <option value="time_asc">Nộp sớm nhất</option>
+                                </select>
+                                <button onClick={() => setScreen('intro')} className="bg-white px-6 py-3 rounded-xl font-bold shadow-sm border border-slate-200 text-red-600 hover:bg-red-50 transition">ĐĂNG XUẤT</button>
                             </div>
-                        );
-                    })}
+                        </div>
+
+                        <div className="bg-white rounded-[2rem] shadow-sm overflow-hidden border border-slate-200">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left whitespace-nowrap">
+                                    <thead className="bg-slate-100 text-slate-500 text-xs font-black uppercase tracking-widest">
+                                        <tr>
+                                            <th className="p-5">Thí sinh</th>
+                                            <th className="p-5">Điểm (Hệ 10)</th>
+                                            <th className="p-5">Tỷ lệ</th>
+                                            <th className="p-5">Thời gian làm</th>
+                                            <th className="p-5">Vi phạm</th>
+                                            <th className="p-5">Ngày nộp</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {sortedAdminData.map((d, i) => {
+                                            const point10 = ((d.score / d.total) * 10).toFixed(1);
+                                            const percent = Math.round((d.score / d.total) * 100);
+                                            const dDate = new Date(d.timestamp);
+                                            return (
+                                                <tr key={i} className="hover:bg-slate-50 transition">
+                                                    <td className="p-5 font-black text-slate-800">{d.name}</td>
+                                                    <td className="p-5 font-black text-blue-600 text-lg">{point10}</td>
+                                                    <td className="p-5">
+                                                        <span className={`px-3 py-1 rounded-lg text-xs font-black ${percent >= 80 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                                            {d.score}/{d.total} ({percent}%)
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-5 font-bold text-slate-600">{formatTime(d.timeSpent)}</td>
+                                                    <td className="p-5">
+                                                        {d.cheatCount > 0 
+                                                            ? <span className="bg-red-100 text-red-700 px-3 py-1 rounded-lg text-xs font-black flex items-center w-max gap-1"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg> {d.cheatCount} lần</span>
+                                                            : <span className="text-emerald-500 font-bold text-xs">0 (An toàn)</span>}
+                                                    </td>
+                                                    <td className="p-5 text-slate-400 text-xs font-semibold">{dDate.toLocaleDateString('vi-VN')} {dDate.toLocaleTimeString('vi-VN')}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {adminData.length === 0 && <div className="p-12 text-center text-slate-400 font-bold">Danh sách trống.</div>}
+                        </div>
+                    </div>
                 </div>
             );
         }
