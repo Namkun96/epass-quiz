@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ePass - Kiểm tra Nghiệp vụ Fintwin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- CẤU HÌNH FIREBASE (Thay thế bằng config của bạn để lưu dữ liệu thực) ---
+        // Nếu không có config, Admin sẽ chỉ xem được kết quả tạm thời trong phiên làm việc.
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT.appspot.com",
+            messagingSenderId: "YOUR_ID",
+            appId: "YOUR_APP_ID"
+        };
+        
+        // Khởi tạo Firebase (nếu bạn đã điền config)
+        if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.apps.length ? firebase.firestore() : null;
+
+        const rawQuestions = [
+            { id: 1, q: "Mã định danh nguồn tiền (FUND_ID) của đối tác Fintwin trong hệ thống CRM là gì?", options: ["6060", "1", "7", "2"], a: 2, exp: "FUND_ID = 7 là mã định danh duy nhất cho nguồn tiền Fintwin." },
+            { id: 2, q: "Trạng thái thanh toán trả sau (Active liên kết nguồn trả sau) được định danh bằng mã nào?", options: ["charge_method = 60", "charge_method = 61", "STATUS = 1", "PROCESSING_STATUS = 2"], a: 1, exp: "Mã 61 định danh cho khách hàng sử dụng hình thức trả sau (Postpaid)." },
+            { id: 3, q: "Bảng nào sau đây lưu trữ quản lý công nợ cho dịch vụ xe qua trạm (ETC)?", options: ["CRM.DEBIT_TRANSACTION", "SETTLEMENT.PARKING_DEBT_TRANSACTION", "SETTLEMENT.DEBT_TRANSACTION", "SALE_TRANS"], a: 2, exp: "Dịch vụ ETC được quản lý nợ tại bảng SETTLEMENT.DEBT_TRANSACTION." },
+            { id: 4, q: "Đối tác Fintwin thực hiện lệnh thanh toán sang Ngân hàng vào khung giờ nào hàng ngày?", options: ["0h00 và 12h00", "8h00 và 15h00", "9h00 và 21h00", "Quét liên tục mỗi 1 phút"], a: 1, exp: "FW gửi lệnh thanh toán 2 đợt: 8h sáng và 15h chiều." },
+            { id: 5, q: "Trong luồng Blacklist dịch vụ phí dán thẻ (DANTHE), PROCESSING_STATUS = 1 có ý nghĩa gì?", options: ["Đã gạch nợ thành công", "Đang chờ đối tác phản hồi", "Đã ghi nhận Blacklist (đang nợ)", "Giao dịch bị lỗi hệ thống"], a: 2, exp: "PROCESSING_STATUS = 1 biểu thị giao dịch đã bị đưa vào danh sách đen." },
+            { id: 6, q: "Khi thanh toán phí dán thẻ qua Fintwin thất bại, dữ liệu nợ được ghi vào bảng nào?", options: ["SETTLEMENT.DEBT_TRANSACTION", "CRM.DEBIT_TRANSACTION", "SETTLEMENT.TRANS_HISTORY", "PAYMENT.CREATE_PAYMENT_VTM"], a: 1, exp: "Mọi giao dịch nợ phí dán thẻ ban đầu được CRM ghi nhận vào bảng CRM.DEBIT_TRANSACTION." },
+            { id: 7, q: "Dịch vụ nào sau đây KHÔNG áp dụng trích nợ tự động qua Fintwin?", options: ["Phí dán/đổi thẻ", "Cước xe qua trạm", "Phí bãi đỗ xe", "Nạp tiền trực tiếp vào TKGT"], a: 3, exp: "Fintwin dùng để thanh toán cước phí phát sinh, không phải nạp tiền." },
+            { id: 8, q: "Mã RECOVERY_STATUS = 11 trong bảng DEBT_TRANSACTION biểu thị điều gì?", options: ["Tạo mới giao dịch nợ", "Thanh toán truy thu thành công", "Giao dịch bị đưa vào Blacklist", "Lỗi kết nối API FW"], a: 1, exp: "RECOVERY_STATUS = 11 là mã cho các giao dịch trừ tiền thành công." },
+            { id: 9, q: "Bảng nào lưu trữ chi tiết giao dịch xe qua trạm ngay khi xe vừa đi qua BOT?", options: ["SETTLEMENT.CDR_SUCCESS_TOLL_COLLECTION", "CRM.CONTRACT_PAYMENT", "SALE_TRANS_DETAIL", "SETTLEMENT.DEBT_COLLECTION_SUCCESS_TIME"], a: 0, exp: "Ghi nhận vào bảng CDR_SUCCESS_TOLL_COLLECTION trước khi Job đồng bộ." },
+            { id: 10, q: "Điều kiện để một hợp đồng được xem là 'Sạch nợ' để Re-active là gì?", options: ["Chỉ cần thanh toán hết nợ xe qua trạm", "Chỉ cần thanh toán hết nợ phí dán thẻ", "Thanh toán hết nợ trên cả 3 bảng: Danthe, ETC và Bãi đỗ", "Khách hàng gọi điện yêu cầu"], a: 2, exp: "Hệ thống kiểm tra nợ chéo trên cả 3 mảng dịch vụ chính." },
+            { id: 11, q: "Tại sao giao dịch xe qua trạm (ETC) lại sinh CDR vào bảng SETTLEMENT trước khi trừ tiền?", options: ["Vì hệ thống OCS bị chậm", "Để cho xe qua trạm trước, thực hiện thu tiền sau (trả sau)", "Để đối soát với trạm BOT", "Vì Fintwin yêu cầu"], a: 1, exp: "OCS cho phép xe qua ngay để tránh ùn tắc, trừ tiền sau." },
+            { id: 12, q: "Trong luồng ETC, nếu CRM.CONTRACT_PAYMENT.FUND_ID = 6060, hệ thống sẽ xử lý thế nào?", options: ["Gọi API sang FW thanh toán", "Trả lỗi 'HĐ đang liên kết Visa' và không gọi FW", "Tự động trừ tiền trong TKGT", "Ghi nhận vào Blacklist ngay"], a: 1, exp: "Hệ thống chặn thanh toán qua FW nếu khách dùng Visa (6060)." },
+            { id: 13, q: "Job quét dữ liệu từ CDR sang DEBT_TRANSACTION trên môi trường Production chạy tần suất bao lâu?", options: ["10 phút/lần", "5 phút/lần", "1 phút/lần", "Ngay lập tức"], a: 2, exp: "Trên Prod, Job chạy mỗi 1 phút." },
+            { id: 14, q: "Khi nhận Blacklist dịch vụ DANTHE từ FW, hệ thống CRM validate failureReason phải bằng bao nhiêu?", options: ["0", "1", "2", "Không cần kiểm tra"], a: 1, exp: "FailureReason = 1 là mã quy định báo hiệu lỗi thanh toán ngân hàng." },
+            { id: 15, q: "Thứ tự các bảng cần kiểm tra nợ khi nhận IPN để Re-active HĐ là gì?", options: ["Nợ Danthe -> Nợ ETC -> Nợ Bãi đỗ", "Nợ ETC -> Nợ Bãi đỗ -> Nợ SMS", "Chỉ kiểm tra dịch vụ vừa nhận IPN", "Kiểm tra số dư TKGT trước"], a: 0, exp: "Quét nợ tuần tự qua các mảng dịch vụ chính." },
+            { id: 16, q: "Nếu hệ thống Billing gọi hàm modifyContract sang OCS thất bại khi Re-active, kết quả là gì?", options: ["HĐ mở trên CRM nhưng khóa trên OCS", "HĐ giữ nguyên trạng thái khóa (60) trên cả CRM và OCS", "Khách hàng đi qua trạm bình thường", "Dữ liệu nợ bị xóa"], a: 1, exp: "Hệ thống giữ trạng thái khóa nếu OCS không đồng bộ thành công." },
+            { id: 17, q: "Cột IS_SYNC = 7 trong bảng CDR_SUCCESS_TOLL_COLLECTION có nghĩa là gì?", options: ["Giao dịch thanh toán thành công", "Quét và đẩy sang DEBT_TRANSACTION thành công", "Giao dịch lỗi đồng bộ", "Chờ Bank xử lý"], a: 1, exp: "Mã 7 định danh bản ghi đã đẩy sang bảng công nợ thành công." },
+            { id: 18, q: "Đối với dịch vụ Bãi đỗ (PARK), nếu FW phản hồi thanh toán thất bại, luồng tiếp theo là gì?", options: ["Ghi nợ Blacklist ngay", "Khóa hợp đồng", "Chuyển sang luồng thanh toán QR hoặc Tiền mặt", "Không cho xe ra khỏi bãi"], a: 2, exp: "Dịch vụ Parking ưu tiên thu tiền ngay qua QR/Tiền mặt nếu FW lỗi." },
+            { id: 19, q: "Khi nhận IPN với ipnType = 'QR_PAYMENT', hệ thống cập nhật PAYMENT_METHOD_ID trong SALE_TRANS là bao nhiêu?", options: ["1", "2", "3", "7"], a: 2, exp: "Mã 3 được quy định cho hình thức thanh toán qua QR Code." },
+            { id: 20, q: "Trường hợp Blacklist dịch vụ PARK, hệ thống cập nhật PROCESSING_STATUS về mã nào trong bảng PARK_DEBT_TRANSACTIONS?", options: ["1", "2", "21", "22"], a: 1, exp: "PROCESSING_STATUS = 2 định danh cho nợ bãi đỗ cần truy thu." },
+            { id: 21, q: "Khách nợ phí dán thẻ (PS=1) và nợ ETC. Sau đó thanh toán nợ phí dán thẻ qua QR. Trạng thái HĐ sẽ là gì?", options: ["Chuyển từ 60 sang 61 (Active)", "Giữ nguyên 60 vì vẫn còn nợ xe qua trạm", "Chuyển sang 61 nhưng OCS chặn", "Tài khoản bị khóa vĩnh viễn"], a: 1, exp: "HĐ vẫn nợ ETC nên phải ở trạng thái 60." },
+            { id: 22, q: "Tại sao khi nhận Blacklist DANTHE, SALE_TRANS.STATUS phải bằng 2?", options: ["Đảm bảo GD đã được gửi lệnh thanh toán sang đối tác trước đó", "Để tránh ghi nợ trùng lặp", "Quy định của Ngân hàng", "Vì STATUS = 2 là trạng thái đã bị hủy"], a: 0, exp: "STATUS = 2 nghĩa là lệnh thanh toán đã phát hành thành công sang FW." },
+            { id: 23, q: "Giao dịch nợ ETC có RECOVERY_STATUS = 14. Điều này có ý nghĩa gì đối với vận hành?", options: ["Giao dịch đã thu hồi xong", "Cần kiểm tra lỗi hệ thống hoặc PTTT để xử lý thủ công", "Khách hàng đã thanh toán tại trạm", "Giao dịch không được phép Blacklist"], a: 1, exp: "Mã 14 là lỗi kỹ thuật chưa định danh, cần kiểm tra thủ công." },
+            { id: 24, q: "FW gửi IPN gạch nợ cho PARK với ipnType = 'FULL_REFUND'. Kiểm tra sự thay đổi ở đâu?", options: ["PARK_DEBT_TRANSACTION, PAYMENT_METHOD_ID = 3", "DEBT_TRANSACTION, PROCESSING_STATUS = 22", "SALE_TRANS, STATUS = 4", "CRM.CONTRACT_PAYMENT, FUND_ID = 6060"], a: 0, exp: "PAYMENT_METHOD_ID cập nhật về 3 trong bảng nợ Parking." },
+            { id: 25, q: "Rủi ro lớn nhất khi khách thanh toán nợ qua QR và IPN từ FW cùng đổ về 1 lúc cho 1 giao dịch?", options: ["Khách bị trừ tiền 2 lần", "Xung đột Race condition (Cần cơ chế Lock bản ghi)", "Hợp đồng bị khóa vĩnh viễn", "Không có rủi ro nào"], a: 1, exp: "Cần cơ chế Lock để tránh ghi nhận kết quả trùng lặp (Concurrency)." },
+            { id: 26, q: "Giao dịch ETC có IS_SCAN = 1 nhưng RECOVERY_STATUS = 10. Khẳng định nào ĐÚNG?", options: ["GD đã thanh toán xong", "Job đã đọc qua nhưng gọi FW chưa có kết quả trả về", "Bản ghi lỗi đồng bộ", "Giao dịch đã bị xóa"], a: 1, exp: "Job đã đọc nhưng chưa có kết quả xử lý từ Payment/FW." },
+            { id: 27, q: "Điểm khác biệt nhất giữa Blacklist DANTHE và Blacklist ETC?", options: ["DANTHE khóa HĐ, ETC không khóa", "DANTHE dùng PS=1, ETC dùng PS=21", "DANTHE do Billing, ETC do CRM xử lý", "DANTHE không cần IPN, ETC bắt buộc"], a: 1, exp: "Mã trạng thái xử lý khác nhau: Danthe dùng 1, ETC dùng 21." },
+            { id: 28, q: "Khi Re-active, tại sao cần kiểm tra FUND_ID hiện tại trên CRM.CONTRACT_PAYMENT phải bằng 7?", options: ["Đảm bảo khách vẫn duy trì liên kết FW", "Để tính phí hoa hồng", "Để cập nhật TOKEN mới", "Bước này không cần thiết"], a: 0, exp: "Luồng Re-active này dành riêng cho đối tác Fintwin." },
+            { id: 29, q: "Hành động cuối cùng của BE Billing khi xử lý nợ Bãi đỗ (PARK) là gì?", options: ["Gửi SMS cho khách", "Gọi hàm modifyContract sang OCS yêu cầu Active HĐ", "Cập nhật số dư TKGT", "Xóa bản ghi nợ"], a: 1, exp: "Bước quan trọng nhất là đồng bộ sang OCS để khách qua trạm." },
+            { id: 30, q: "HĐ có nguồn chính FUND_ID=7, nguồn phụ FUND_ID=1. Khi ghi nhận BL, hệ thống dựa vào đâu?", options: ["Bất kỳ nguồn Status = 1", "FUND_ID = 7 và kiểm tra trạng thái STATUS 1 hoặc 3", "Chỉ Inactive khi FUND_ID = 1", "Inactive tất cả các nguồn tiền"], a: 1, exp: "Hệ thống kiểm tra ID 7 ở cả nguồn chính (1) hoặc phụ (3)." },
+        ];
+
+        function App() {
+            const [screen, setScreen] = useState('intro'); // intro, name, quiz, result, review, admin, admin-login
+            const [userName, setUserName] = useState('');
+            const [questions, setQuestions] = useState([]);
+            const [currentIdx, setCurrentIdx] = useState(0);
+            const [userAnswers, setUserAnswers] = useState({});
+            const [timeLeft, setTimeLeft] = useState(30 * 60);
+            const [isFinished, setIsFinished] = useState(false);
+            const [adminPass, setAdminPass] = useState('');
+            const [allResults, setAllResults] = useState([]);
+
+            // Xáo trộn câu hỏi
+            const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
+
+            // Timer logic
+            useEffect(() => {
+                let timer;
+                if (screen === 'quiz' && timeLeft > 0 && !isFinished) {
+                    timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
+                } else if (timeLeft === 0 && screen === 'quiz') {
+                    alert("Đã hết 30 phút làm bài!");
+                    handleFinish();
+                }
+                return () => clearInterval(timer);
+            }, [screen, timeLeft, isFinished]);
+
+            const handleStart = () => {
+                if (!userName.trim()) return alert("Vui lòng nhập tên!");
+                setQuestions(shuffle(rawQuestions));
+                setScreen('quiz');
+            };
+
+            const handleFinish = async () => {
+                setIsFinished(true);
+                alert("Chúc mừng! Bạn đã hoàn thành bài kiểm tra.");
+                
+                const score = questions.reduce((acc, q, idx) => acc + (userAnswers[idx] === q.a ? 1 : 0), 0);
+                const result = {
+                    name: userName,
+                    score: score,
+                    total: questions.length,
+                    time: 1800 - timeLeft,
+                    date: new Date().toLocaleString('vi-VN'),
+                    details: questions.map((q, idx) => ({
+                        question: q.q,
+                        userChoice: q.options[userAnswers[idx]] || "Chưa chọn",
+                        correctChoice: q.options[q.a],
+                        isCorrect: userAnswers[idx] === q.a
+                    }))
+                };
+
+                // Lưu vào database thực tế nếu có Firebase, nếu không lưu vào LocalStorage để test
+                if (db) {
+                    await db.collection("quiz_results").add(result);
+                } else {
+                    const local = JSON.parse(localStorage.getItem('fintwin_results') || '[]');
+                    local.push(result);
+                    localStorage.setItem('fintwin_results', JSON.stringify(local));
+                }
+                setScreen('result');
+            };
+
+            const loadAdminData = async () => {
+                if (db) {
+                    const snap = await db.collection("quiz_results").get();
+                    setAllResults(snap.docs.map(doc => doc.data()));
+                } else {
+                    setAllResults(JSON.parse(localStorage.getItem('fintwin_results') || '[]'));
+                }
+                setScreen('admin');
+            };
+
+            if (screen === 'intro') return (
+                <div className="min-h-screen flex items-center justify-center p-4 bg-indigo-700 text-white text-center">
+                    <div className="max-w-md w-full">
+                        <h1 className="text-4xl font-black mb-6 uppercase">E-Learning ePass</h1>
+                        <p className="mb-8 opacity-80">Chào mừng bạn đến với kỳ thi sát hạch Fintwin. Vui lòng nhập thông tin để bắt đầu.</p>
+                        <input type="text" value={userName} onChange={e => setUserName(e.target.value)} placeholder="Nhập Họ tên nhân sự..." className="w-full p-4 rounded-xl text-gray-900 font-bold mb-4 outline-none" />
+                        <button onClick={handleStart} className="w-full bg-orange-500 hover:bg-orange-600 py-4 rounded-xl font-bold text-xl shadow-lg transition">BẮT ĐẦU THI</button>
+                        <button onClick={() => setScreen('admin-login')} className="mt-12 text-indigo-300 text-sm hover:underline">Dành cho Admin</button>
+                    </div>
+                </div>
+            );
+
+            if (screen === 'admin-login') return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+                    <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-xs text-center">
+                        <h2 className="font-bold mb-4">NHẬP MẬT MÃ ADMIN</h2>
+                        <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="w-full border p-3 rounded-lg mb-4 text-center" />
+                        <button onClick={() => adminPass === '1234' ? loadAdminData() : alert("Sai pass!")} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold">XÁC NHẬN</button>
+                        <button onClick={() => setScreen('intro')} className="mt-4 text-gray-400 text-sm">Quay lại</button>
+                    </div>
+                </div>
+            );
+
+            if (screen === 'admin') return (
+                <div className="p-4 md:p-8 max-w-5xl mx-auto">
+                    <div className="flex justify-between items-center mb-8">
+                        <h1 className="text-2xl font-black">DANH SÁCH KẾT QUẢ THI</h1>
+                        <button onClick={() => setScreen('intro')} className="bg-gray-200 px-4 py-2 rounded-lg font-bold">ĐĂNG XUẤT</button>
+                    </div>
+                    <div className="space-y-4">
+                        {allResults.map((r, i) => (
+                            <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border flex justify-between items-center">
+                                <div>
+                                    <p className="font-black text-indigo-600">{r.name}</p>
+                                    <p className="text-xs text-gray-400">{r.date}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-2xl font-black">{r.score}/{r.total}</p>
+                                    <p className="text-xs text-green-500 font-bold">{Math.round((r.score/r.total)*100)}%</p>
+                                </div>
+                            </div>
+                        ))}
+                        {allResults.length === 0 && <p className="text-center text-gray-400">Chưa có kết quả nào.</p>}
+                    </div>
+                </div>
+            );
+
+            if (screen === 'quiz') {
+                const q = questions[currentIdx];
+                return (
+                    <div className="min-h-screen flex flex-col bg-gray-50">
+                        <header className="bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-10">
+                            <span className="font-bold text-gray-400">Câu {currentIdx + 1}/{questions.length}</span>
+                            <div className="bg-indigo-100 text-indigo-700 px-4 py-1 rounded-full font-mono font-black text-xl">
+                                {Math.floor(timeLeft/60)}:{(timeLeft%60).toString().padStart(2, '0')}
+                            </div>
+                            <button onClick={() => window.confirm("Nộp bài sớm?") && handleFinish()} className="bg-orange-500 text-white px-4 py-1 rounded-lg font-bold">NỘP BÀI</button>
+                        </header>
+                        <main className="flex-1 p-4 md:p-8 max-w-3xl mx-auto w-full">
+                            <h2 className="text-xl font-bold mb-8 leading-relaxed text-gray-800">{q.q}</h2>
+                            <div className="space-y-4">
+                                {q.options.map((opt, i) => (
+                                    <button key={i} onClick={() => setUserAnswers({...userAnswers, [currentIdx]: i})} className={`w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center gap-4 ${userAnswers[currentIdx] === i ? 'border-indigo-600 bg-indigo-50 shadow-md' : 'border-gray-100 bg-white'}`}>
+                                        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${userAnswers[currentIdx] === i ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}>{String.fromCharCode(65+i)}</span>
+                                        <span className="font-semibold text-gray-700">{opt}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </main>
+                        <footer className="p-4 bg-white border-t flex justify-between max-w-3xl mx-auto w-full">
+                            <button onClick={() => setCurrentIdx(Math.max(0, currentIdx-1))} className="text-gray-400 font-bold">Trở lại</button>
+                            <button onClick={() => currentIdx < questions.length - 1 ? setCurrentIdx(currentIdx+1) : handleFinish()} className="text-indigo-600 font-bold">{currentIdx === questions.length - 1 ? "Kết thúc" : "Tiếp tục"}</button>
+                        </footer>
+                    </div>
+                );
+            }
+
+            if (screen === 'result') {
+                const score = questions.reduce((acc, q, idx) => acc + (userAnswers[idx] === q.a ? 1 : 0), 0);
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full text-center">
+                            <h1 className="text-2xl font-black mb-2 text-[#6200EA]">KẾT QUẢ CỦA BẠN</h1>
+                            <p className="text-gray-400 mb-8 font-bold">{userName}</p>
+                            <div className="text-6xl font-black text-indigo-600 mb-2">{score}/{questions.length}</div>
+                            <p className="font-bold text-green-500 mb-8">{Math.round((score/questions.length)*100)}% Chính xác</p>
+                            <button onClick={() => setScreen('review')} className="w-full bg-gray-100 text-indigo-600 font-bold py-4 rounded-xl mb-4">XEM CHI TIẾT ĐÁP ÁN</button>
+                            <button onClick={() => window.location.reload()} className="w-full border-2 border-indigo-600 text-indigo-600 font-bold py-4 rounded-xl">THI LẠI</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (screen === 'review') return (
+                <div className="max-w-3xl mx-auto p-4 py-12">
+                    <div className="flex justify-between items-center mb-8">
+                        <h1 className="text-3xl font-black">GIẢI THÍCH ĐÁP ÁN</h1>
+                        <button onClick={() => setScreen('result')} className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold">Quay lại</button>
+                    </div>
+                    {questions.map((q, idx) => {
+                        const isCorrect = userAnswers[idx] === q.a;
+                        return (
+                            <div key={idx} className={`bg-white rounded-3xl shadow-sm p-8 mb-6 border-l-8 ${isCorrect ? 'border-green-500' : 'border-red-500'}`}>
+                                <p className="font-bold text-gray-800 mb-6">{idx + 1}. {q.q}</p>
+                                <div className="space-y-2 mb-6 text-sm">
+                                    {q.options.map((opt, i) => (
+                                        <div key={i} className={`p-3 rounded-xl border ${i === q.a ? 'bg-green-50 border-green-200 text-green-700 font-bold' : userAnswers[idx] === i ? 'bg-red-50 border-red-200 text-red-700' : 'bg-gray-50'}`}>
+                                            {String.fromCharCode(65+i)}. {opt}
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="bg-indigo-50 p-4 rounded-2xl text-xs text-indigo-800 italic">
+                                    <strong>Ghi chú:</strong> {q.exp}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
