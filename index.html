@@ -26,75 +26,83 @@
         const { useState, useEffect, useMemo, useRef } = React;
 
         // --- FIREBASE CONFIG ---
-        // Điền config thật của bạn vào đây để dữ liệu lưu trên Cloud. Nếu không, app sẽ dùng LocalStorage (chỉ xem được trên máy hiện tại).
         const firebaseConfig = {
             apiKey: "YOUR_API_KEY",
             authDomain: "YOUR_PROJECT.firebaseapp.com",
             projectId: "YOUR_PROJECT_ID"
         };
-        
         if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
             firebase.initializeApp(firebaseConfig);
         }
         const db = firebase.apps.length ? firebase.firestore() : null;
 
-        // --- NGÂN HÀNG CÂU HỎI CHUYÊN SÂU ---
+        // --- NGÂN HÀNG CÂU HỎI CHUYÊN MÔN CAO ---
         const allQuestions = [
-            // NGHIỆP VỤ CƠ BẢN & ĐỊNH DANH
+            // 1. ĐỊNH DANH & LIÊN KẾT
             { q: "Mã định danh nguồn tiền (FUND_ID) của đối tác Fintwin trong hệ thống CRM ePass là gì?", options: ["6060", "1", "7", "2"], a: 2, exp: "FUND_ID = 7 là mã định danh duy nhất cho nguồn tiền Fintwin." },
             { q: "Trạng thái thanh toán trả sau (Active liên kết nguồn trả sau) trên hệ thống ePass được định danh bằng mã nào?", options: ["charge_method = 60", "charge_method = 61", "STATUS = 1", "PROCESSING_STATUS = 2"], a: 1, exp: "Mã 61 định danh cho Hợp đồng Active trả sau. Mã 60 là Inactive." },
             { q: "Để xác định Fintwin là nguồn tiền thanh toán CHÍNH đang được liên kết, hệ thống kiểm tra điều kiện gì trong bảng CRM.CONTRACT_PAYMENT?", options: ["STATUS = 3 và FUND_ID = 7", "STATUS = 1 và FUND_ID = 7", "STATUS = 2 và FUND_ID = 6060", "CHARGE_METHOD = 61"], a: 1, exp: "STATUS = 1 nghĩa là nguồn chính, STATUS = 3 là nguồn phụ." },
-            
-            // LUỒNG LIÊN KẾT / HUỶ LIÊN KẾT (KIẾN THỨC MỚI)
-            { q: "Khi KH thực hiện liên kết nguồn tiền Fintwin, quy trình lấy thông tin ngân hàng diễn ra ở đâu?", options: ["Khách hàng nhập trực tiếp số thẻ trên App ePass", "FW cung cấp một URL Webview để KH chọn ngân hàng và xác thực", "Nhân viên ePass gọi điện lấy thông tin", "Hệ thống tự động liên kết qua số điện thoại"], a: 1, exp: "App ePass gọi BE -> FW để lấy URL webview cho KH nhập thông tin an toàn." },
-            { q: "Riêng đối với ngân hàng Vietinbank, luồng liên kết và huỷ liên kết Fintwin có điểm gì đặc biệt?", options: ["Không hỗ trợ Vietinbank", "Chỉ thao tác trên Webview của Fintwin", "Webview điều hướng mở App Ipay để KH thực hiện trên App Ngân hàng", "Phải ra quầy giao dịch Vietinbank"], a: 2, exp: "Với Vietinbank, luồng bắt buộc phải mở App Ipay của ngân hàng để thao tác." },
+            { q: "Khi KH thực hiện liên kết nguồn tiền Fintwin, quy trình lấy thông tin ngân hàng diễn ra như thế nào?", options: ["Khách hàng nhập trực tiếp số thẻ/tài khoản trên App ePass", "FW cung cấp một URL Webview để KH chọn ngân hàng và xác thực", "Khách hàng gửi yêu cầu qua Email để CSKH cấu hình", "Hệ thống tự động liên kết qua số điện thoại đăng ký"], a: 1, exp: "App ePass gọi BE -> FW để lấy URL webview cho KH nhập thông tin an toàn trên môi trường của đối tác." },
+            { q: "Đối với ngân hàng Vietinbank, luồng liên kết và huỷ liên kết Fintwin có điểm gì khác biệt so với các ngân hàng khác?", options: ["Chỉ hỗ trợ liên kết qua thẻ nội địa (Napas)", "Phải thực hiện xác thực qua tin nhắn SMS 2 lớp", "Webview điều hướng mở ứng dụng Ipay để KH thực hiện trực tiếp trên App Ngân hàng", "Thời gian chờ xác thực lên tới 24h"], a: 2, exp: "Với Vietinbank, luồng bắt buộc điều hướng sang ứng dụng Ipay của ngân hàng để thao tác." },
             { q: "Sau khi KH xác thực liên kết thành công trên Webview, Fintwin sẽ trả token về cho ePass thông qua API nào?", options: ["/transaction/fintwin/blacklist", "/provide-token", "/fintwin/link-success", "/payment/charge"], a: 1, exp: "API IPN trả token liên kết là /provide-token." },
-            { q: "Trong trường hợp IPN liên kết hoặc huỷ liên kết thất bại (do lỗi mạng, timeout), Fintwin sẽ có cơ chế Retry như thế nào?", options: ["Không retry, huỷ luôn giao dịch", "Retry tối đa 5 lần, mỗi lần cách nhau 1 phút", "Retry tối đa 3 lần, mỗi lần cách nhau 5 phút", "Retry liên tục đến khi thành công"], a: 2, exp: "Cơ chế retry chuẩn là tối đa 3 lần, mỗi lần cách nhau 5 phút." },
-            { q: "Lưu ý cực kỳ quan trọng: Khách hàng yêu cầu HUỶ liên kết Fintwin nhưng hệ thống FE trả lỗi code 19. Nguyên nhân do đâu?", options: ["Tài khoản khách hàng đang bị khoá", "Khách hàng có giao dịch chờ thanh toán (đã gửi FW nhưng FW chưa gọi bank)", "Mạng lỗi", "Token đã hết hạn"], a: 1, exp: "Lỗi code 19 (Có GD chờ thanh toán): Không thể huỷ liên kết nếu lệnh đã đẩy sang FW mà chưa có kết quả cuối cùng từ Bank." },
+            { q: "Trong trường hợp IPN liên kết hoặc huỷ liên kết thất bại (do lỗi mạng, timeout), Fintwin sẽ có cơ chế Retry như thế nào?", options: ["Không retry, huỷ luôn giao dịch và yêu cầu KH làm lại", "Retry tối đa 5 lần, mỗi lần cách nhau 1 phút", "Retry tối đa 3 lần, mỗi lần cách nhau 5 phút", "Ghi log lỗi và chờ vận hành xử lý thủ công"], a: 2, exp: "Cơ chế retry chuẩn của đối tác là tối đa 3 lần, mỗi lần cách nhau 5 phút." },
+            { q: "Lưu ý quan trọng: Khách hàng yêu cầu HUỶ liên kết Fintwin nhưng hệ thống FE trả lỗi code 19. Nguyên nhân do đâu?", options: ["Hệ thống cổng thanh toán đang bảo trì", "Khách hàng có giao dịch chờ thanh toán (đã gửi FW nhưng FW chưa gọi lệnh sang Bank)", "Tài khoản giao thông đang bị khoá", "Chữ ký xác thực (Signature) không hợp lệ"], a: 1, exp: "Lỗi code 19 (Có GD chờ thanh toán): Không thể huỷ liên kết nếu lệnh đã đẩy sang FW mà chưa có kết quả cuối cùng từ Bank." },
+
+            // 2. LUỒNG THANH TOÁN (DANTHE, ETC, PARK)
+            { q: "Dịch vụ nào sau đây KHÔNG áp dụng trích nợ tự động qua Fintwin?", options: ["Phí dán/đổi thẻ", "Cước xe qua trạm", "Phí bãi đỗ xe", "Nạp tiền chủ động vào TKGT"], a: 3, exp: "Fintwin dùng để thanh toán cước phí dịch vụ phát sinh, không dùng cho dịch vụ nạp ví ePass." },
+            { q: "Đối với dịch vụ Phí dán thẻ (DANTHE), nếu FW phản hồi thanh toán thất bại ngay lập tức (lỗi token, hệ thống), giao dịch nợ được lưu vào bảng nào?", options: ["SETTLEMENT.DEBT_TRANSACTION", "CRM.DEBIT_TRANSACTION", "SALE_TRANS_DETAIL", "SETTLEMENT.PARKING_DEBT_TRANSACTION"], a: 1, exp: "Nợ phí dán thẻ luôn được quản lý ở bảng CRM.DEBIT_TRANSACTION." },
+            { q: "Tại sao giao dịch xe qua trạm (ETC) bằng nguồn tiền Fintwin lại được lưu ngay vào bảng SETTLEMENT.CDR_SUCCESS_TOLL_COLLECTION?", options: ["Vì OCS kiểm tra charge_method=61 (nguồn trả sau), TKGT không đủ tiền -> Commit cho xe qua trạm thành công, sinh CDR với charge_method_select=61.", "Vì FW yêu cầu gọi API đồng bộ sau mỗi 24h.", "Để đối soát với trạm BOT và tính phí hoa hồng.", "Hệ thống ghi nhận tạm thời do lỗi kết nối với Bank."], a: 0, exp: "Khi qua trạm, OCS kiểm tra charge_method=61, TKGT không đủ tiền -> commit cho xe qua, lưu CDR. Sau đó thủ tục quét kiểm tra tiếp FUND_ID=7 để đẩy sang DEBT_TRANSACTION." },
+            { q: "Thủ tục quét dữ liệu định kỳ (Job Sync) đẩy giao dịch từ CDR_SUCCESS_TOLL_COLLECTION sang DEBT_TRANSACTION yêu cầu lọc dữ liệu theo điều kiện nào liên quan đến FUND_ID?", options: ["FUND_ID = 1 hoặc 2", "FUND_ID = 6060", "FUND_ID = 7 (Khác 6060 để tách nguồn VISA)", "Bỏ qua điều kiện FUND_ID"], a: 2, exp: "Cần lọc FUND_ID = 7 để đảm bảo chỉ lấy các GD của Fintwin, tách biệt với luồng xử lý thẻ Visa (6060)." },
+            { q: "Thủ tục quét dữ liệu định kỳ đẩy giao dịch từ CDR sang DEBT_TRANSACTION chạy với tần suất bao lâu trên môi trường Production?", options: ["10 phút/lần", "1 tiếng/lần", "1 phút/lần", "Chỉ chạy 1 lần vào cuối ngày"], a: 2, exp: "Trên Production, Job đồng bộ chạy 1 phút/lần để đảm bảo thu tiền nhanh nhất." },
+            { q: "Trạng thái IS_SYNC = 7 trong bảng CDR_SUCCESS_TOLL_COLLECTION có ý nghĩa gì?", options: ["Giao dịch bị từ chối do thẻ hết hạn", "Giao dịch đã được quét và đẩy sang bảng quản lý nợ DEBT_TRANSACTION thành công", "Đã thanh toán thành công", "Giao dịch đang được chờ duyệt điều chỉnh"], a: 1, exp: "IS_SYNC = 7 là cờ báo hiệu bản ghi CDR đã được đẩy vào luồng thu nợ." },
+            { q: "Trong bảng SETTLEMENT.DEBT_TRANSACTION (ETC), mã RECOVERY_STATUS = 10 biểu thị điều gì?", options: ["Giao dịch nợ tạo mới (chờ xử lý)", "Lỗi kết nối API", "Thanh toán/Truy thu thành công", "Lỗi PTTT"], a: 0, exp: "RECOVERY_STATUS = 10 là trạng thái khởi tạo ban đầu khi giao dịch vừa được đẩy vào bảng." },
+            { q: "Trong bảng SETTLEMENT.DEBT_TRANSACTION (ETC), mã RECOVERY_STATUS = 11 biểu thị điều gì?", options: ["Giao dịch nợ mới tạo", "Lỗi kết nối API chưa xác định", "Thanh toán/Truy thu thành công", "Đang chờ đối soát thủ công"], a: 2, exp: "RECOVERY_STATUS = 11 là trạng thái thành công sau khi gọi Payment." },
+            { q: "Đối với dịch vụ Bãi đỗ (PARK), nếu HĐ liên kết nguồn tiền FW là nguồn chính, TKGT không đủ tiền nhưng FW phản hồi thanh toán thất bại, hệ thống sẽ xử lý thế nào?", options: ["Ghi nợ Blacklist và khoá HĐ ngay lập tức", "Khoá barie không cho xe ra khỏi bãi", "Chuyển hướng sang luồng thanh toán qua QR Code hoặc Tiền mặt", "Đẩy giao dịch vào luồng Job quét lại sau 1 phút"], a: 2, exp: "Bãi đỗ yêu cầu thu tiền tại chỗ, nếu FW lỗi sẽ linh hoạt chuyển sang phương thức dự phòng (QR/Tiền mặt) để giải phóng xe." },
+            { q: "Trong bảng DEBT_TRANSACTION, SOURCE_TRANS = 5 đại diện cho loại giao dịch nào?", options: ["Thanh toán trả sau cho OTC/ETC", "Thanh toán trả sau cho nghiệp vụ điều chỉnh tăng", "Giao dịch nạp tiền qua Bank", "Giao dịch trừ cước bãi đỗ"], a: 1, exp: "SOURCE_TRANS = 5 dành cho giao dịch điều chỉnh tăng (Adjusted Toll)." },
+            { q: "Trong bảng DEBT_TRANSACTION, SOURCE_TRANS = 4 đại diện cho loại giao dịch nào?", options: ["Thanh toán trả sau cho nghiệp vụ điều chỉnh tăng", "Thanh toán phí SMS", "Thanh toán trả sau cho OTC/ETC", "Thanh toán nợ qua luồng IPN"], a: 2, exp: "SOURCE_TRANS = 4 dùng để phân loại giao dịch gốc ETC." },
+
+            // 3. BLACKLIST & INACTIVE HĐ
+            { q: "Fintwin thực hiện gọi lệnh thanh toán sang Ngân hàng của khách (Batch job) vào các khung giờ nào hàng ngày?", options: ["0h00 và 12h00", "8h00 sáng (cho GD 15h-23h59 hôm trước) và 15h00 chiều (cho GD 0h-14h59 cùng ngày)", "10h00 và 16h00", "Cứ 3 tiếng chạy batch 1 lần"], a: 1, exp: "FW gom GD chạy batch 2 lần cố định: 8h sáng và 15h." },
+            { q: "Khi nhận dữ liệu Blacklist từ FW, hệ thống CRM kiểm tra tồn tại bản ghi trong CRM.CONTRACT_PAYMENT với điều kiện nào?", options: ["FUND_ID = 7 và STATUS = 2", "FUND_ID = 7 và STATUS IN (1, 3)", "FUND_ID = 6060 và STATUS = 1", "Chỉ cần tồn tại CONTRACT_ID"], a: 1, exp: "Hệ thống kiểm tra ID 7 đang là nguồn chính (1) hoặc nguồn phụ (3) để xử lý khoá." },
+            { q: "Khi nhận Blacklist dịch vụ DANTHE, CRM yêu cầu giao dịch trong bảng SALE_TRANS.SALE_TRANS_CODE phải có STATUS bằng mấy?", options: ["STATUS = 1", "STATUS = 2 (đã gửi lệnh thanh toán thành công)", "STATUS = 3", "STATUS = 4 (Đã huỷ)"], a: 1, exp: "STATUS = 2 nghĩa là lệnh thanh toán đã gửi đi, nay nhận lại lỗi từ Bank nên bị Blacklist." },
+            { q: "Trong luồng nhận Blacklist DANTHE, nếu PROCESSING_STATUS hiện tại của orderId là 1, hệ thống sẽ trả lỗi gì cho đối tác?", options: ["GD đã được xử lý", "Trạng thái GD không hợp lệ", "Lỗi dữ liệu đầu vào", "Không tìm thấy giao dịch"], a: 0, exp: "PS = 1 nghĩa là GD này ĐÃ NẰM trong danh sách Blacklist rồi, trả lỗi 'GD đã được xử lý' để tránh ghi nợ đúp." },
+            { q: "Trong luồng nhận Blacklist DANTHE, nếu PROCESSING_STATUS hiện tại của orderId là 2, hệ thống sẽ trả lỗi gì cho đối tác?", options: ["GD đã được xử lý", "Trạng thái GD không hợp lệ", "Chưa hỗ trợ phương thức này", "Tài khoản không đủ số dư"], a: 1, exp: "PS = 2 nghĩa là GD đã được thanh toán (clear khỏi Blacklist). Trả lỗi 'Trạng thái GD không hợp lệ' vì không thể Blacklist lại một GD đã thanh toán." },
+            { q: "Hành động mang tính 'chặn rủi ro' quan trọng nhất mà hệ thống CRM/OCS thực hiện ngay khi ghi nhận giao dịch vào Blacklist là gì?", options: ["Gửi cảnh báo sang luồng giám sát thủ công", "In-active trạng thái liên kết của HĐ (charge_method = 61 -> 60)", "Xoá thông tin thẻ/tài khoản ngân hàng của KH", "Từ chối mọi yêu cầu nạp tiền"], a: 1, exp: "Khoá charge_method về 60 là chốt chặn quan trọng nhất để KH không thể đi qua trạm tiếp." },
+            { q: "Blacklist dịch vụ Bãi đỗ (PARK) cập nhật PROCESSING_STATUS về giá trị nào trong bảng SETTLEMENT.PARKING_DEBT_TRANSACTIONS?", options: ["1 (Đang chờ xử lý)", "2 (Giao dịch nợ cần hỗ trợ truy thu)", "3 (Đã gạch nợ)", "21 (Lỗi hệ thống)"], a: 1, exp: "PROCESSING_STATUS = 2 trong luồng Parking định danh cho nợ xấu cần truy thu." },
+            { q: "Đối với dịch vụ ETC / ADJUST, luồng ghi nhận Blacklist yêu cầu orderId phải tồn tại trong bảng DEBT_TRANSACTION với RECOVERY_STATUS bằng bao nhiêu?", options: ["10", "11", "12", "14"], a: 1, exp: "Phải là GD đã từng gọi thanh toán thành công (11), sau đó Bank trả lỗi (hậu kiểm) thì mới đưa vào Blacklist." },
+            { q: "Khi đưa giao dịch ETC vào Blacklist, hệ thống cập nhật PROCESSING_STATUS bằng bao nhiêu trong bảng DEBT_TRANSACTION?", options: ["1", "2", "21", "22"], a: 2, exp: "Với ETC, PROCESSING_STATUS được đặt là 21 để đánh dấu Blacklist." },
+            { q: "Tình huống nghiệp vụ: Tồn tại giao dịch Blacklist, nếu phía ePass lỗi bất đồng bộ không inactive trạng thái liên kết mà vẫn gửi yêu cầu thanh toán mới sang FW. Kết quả sẽ ra sao?", options: ["FW vẫn trừ tiền bình thường", "Giao dịch được đưa vào hàng đợi", "FW sẽ trả lỗi từ chối thanh toán cho tới khi không tồn tại bất cứ giao dịch Blacklist nào", "FW tự động huỷ liên kết của khách"], a: 2, exp: "FW có cơ chế phòng vệ (Cross-check): Từ chối request mới nếu user đang nợ xấu." },
+
+            // 4. LUỒNG IPN (GẠCH NỢ) & RE-ACTIVE
+            { q: "Có những phương thức IPN (ipnType) chính nào dùng để gạch nợ (xoá giao dịch khỏi Blacklist) trên FW?", options: ["Chỉ BANK_TRANSFER", "SMS_PAYMENT và WEB_PAYMENT", "BLACKLIST_PAYMENT_SUCCESS và QR_PAYMENT", "AUTO_RETRY và MANUAL_CLEAR"], a: 2, exp: "1. FW chủ động thu được từ Bank (BLACKLIST_PAYMENT_SUCCESS). 2. KH tự trả qua QR (QR_PAYMENT)." },
+            { q: "Khi nhận IPN DANTHE với ipnType = 'QR_PAYMENT', hệ thống cập nhật PAYMENT_METHOD_ID trong bảng SALE_TRANS là bao nhiêu?", options: ["1", "2", "3", "Không cập nhật"], a: 2, exp: "PAYMENT_METHOD_ID = 3 quy định cho thanh toán QR." },
+            { q: "Khi nhận IPN DANTHE với ipnType = 'BLACKLIST_PAYMENT_SUCCESS', hệ thống cập nhật PAYMENT_METHOD_ID trong bảng SALE_TRANS như thế nào?", options: ["Cập nhật = 1", "Cập nhật = 2", "Không cập nhật", "Cập nhật = 4"], a: 2, exp: "Theo nghiệp vụ DANTHE, IPN từ Batchjob (BLACKLIST_PAYMENT_SUCCESS) thì không cập nhật trường này." },
+            { q: "Trong luồng IPN dịch vụ Bãi đỗ (PARK), nếu đối tác truy thu thành công qua luồng batchjob (BLACKLIST_PAYMENT_SUCCESS), PAYMENT_METHOD_ID được cập nhật thành?", options: ["1", "2", "3", "4"], a: 0, exp: "Batchjob Parking -> ID 1." },
+            { q: "Trong luồng IPN dịch vụ Bãi đỗ (PARK), nếu ipnType là 'FULL_REFUND' (clear giao dịch nợ gốc), PAYMENT_METHOD_ID được cập nhật thành?", options: ["1", "2", "3", "0"], a: 2, exp: "FULL_REFUND Parking -> ID 3." },
+            { q: "Sau khi cập nhật trạng thái gạch nợ thành công cho 1 dịch vụ (VD: DANTHE), hệ thống kiểm tra thông tin liên kết hiện tại của HĐ trên bảng nào để chuẩn bị Re-active?", options: ["SALE_TRANS", "SETTLEMENT.DEBT_TRANSACTION", "CRM.CONTRACT_PAYMENT (STATUS = 1/3, fund_id = 7)", "OCS_PROFILE"], a: 2, exp: "Phải đảm bảo HĐ vẫn đang liên kết FW trước khi xét duyệt Re-active." },
+            { q: "Luồng quét nợ chéo (Cross-debt check) để Re-active HĐ kiểm tra dữ liệu ở những bảng nào?", options: ["Chỉ kiểm tra DEBIT_TRANSACTION", "Kiểm tra DEBIT_TRANSACTION, DEBT_TRANSACTION, và PARKING_DEBT_TRANSACTIONS", "Chỉ kiểm tra bảng của dịch vụ vừa thanh toán", "Kiểm tra dư nợ trong tài khoản giao thông"], a: 1, exp: "Phải kiểm tra sạch nợ ở cả 3 mảng: Danthe, ETC, Bãi đỗ." },
+            { q: "Trong quá trình quét nợ chéo, điều kiện để xác định HĐ còn nợ dịch vụ DANTHE là gì?", options: ["DEBIT_TRANSACTION.PROCESSING_STATUS = 1", "DEBIT_TRANSACTION.PROCESSING_STATUS = 2", "SALE_TRANS.STATUS = 1", "SALE_TRANS.METHOD_RECHARGE_ID = 60"], a: 0, exp: "PS = 1 trong DEBIT_TRANSACTION là dấu hiệu còn nợ dán thẻ." },
+            { q: "Trong quá trình quét nợ chéo, điều kiện để xác định HĐ còn nợ dịch vụ ETC là gì?", options: ["DEBT_TRANSACTION.PROCESSING_STATUS = 11", "DEBT_TRANSACTION.PROCESSING_STATUS = 21 và FUND_ID = 7", "DEBT_TRANSACTION.IS_SCAN = 0", "DEBT_TRANSACTION.RECOVERY_STATUS = 10"], a: 1, exp: "PS = 21 và Fund 7 là dấu hiệu nợ xấu ETC." },
+            { q: "Nếu kết quả quét nợ chéo phát hiện VẪN TỒN TẠI một giao dịch nợ ở mảng khác, hệ thống sẽ làm gì?", options: ["Chỉ mở một nửa dịch vụ", "Ghi log cảnh báo và chuyển luồng đối soát", "Kết thúc luồng, giữ nguyên trạng thái charge_method = 60", "Force Active charge_method = 61"], a: 2, exp: "Nguyên tắc: Có bất kỳ nợ nào -> Giữ nguyên trạng thái khoá." },
+            { q: "Khi thoả mãn điều kiện Sạch nợ, hệ thống nào chịu trách nhiệm Call hàm 'modifyContract' sang OCS để cập nhật charge_method 60 -> 61?", options: ["Hệ thống FE Portal", "Trực tiếp từ FW gọi sang OCS", "Hệ thống BE Bất thường / BE Billing (tuỳ luồng dịch vụ)", "App ePass của khách hàng"], a: 2, exp: "Core BE (Bất thường/Billing) sẽ gọi hàm thay đổi trạng thái OCS." },
             
-            // LUỒNG THANH TOÁN (DANTHE, ETC, PARK)
-            { q: "Dịch vụ nào sau đây KHÔNG áp dụng trích nợ tự động qua Fintwin?", options: ["Phí dán/đổi thẻ", "Cước xe qua trạm", "Phí bãi đỗ xe", "Nạp tiền chủ động vào TKGT"], a: 3, exp: "Fintwin dùng để thanh toán cước phí dịch vụ phát sinh, không dùng nạp ví ePass." },
-            { q: "Đối với dịch vụ Phí dán thẻ (DANTHE), nếu FW phản hồi thanh toán thất bại ngay lập tức (lỗi token, hệ thống), giao dịch nợ được lưu vào bảng nào?", options: ["SETTLEMENT.DEBT_TRANSACTION", "CRM.DEBIT_TRANSACTION", "SALE_TRANS", "SETTLEMENT.PARKING_DEBT_TRANSACTION"], a: 1, exp: "Nợ phí dán thẻ luôn được quản lý ở bảng CRM.DEBIT_TRANSACTION." },
-            { q: "Tại sao giao dịch xe qua trạm (ETC) bằng nguồn tiền Fintwin lại được lưu ngay vào bảng SETTLEMENT.CDR_SUCCESS_TOLL_COLLECTION?", options: ["Vì OCS kiểm tra charge_method=61 (nguồn trả sau), TKGT không đủ tiền -> Commit cho xe qua trạm thành công, sinh CDR với charge_method_select=61.", "Vì Fintwin yêu cầu trừ tiền ngay lập tức nhưng mạng chậm.", "Để đối soát với trạm BOT vào cuối ngày.", "Do lỗi đồng bộ hệ thống OCS."], a: 0, exp: "Khi qua trạm, OCS kiểm tra charge_method=61, TKGT không đủ tiền -> commit cho xe qua, lưu CDR. Sau đó thủ tục quét kiểm tra tiếp FUND_ID=7 (tách biệt với 6060 của VISA) để đẩy sang DEBT_TRANSACTION." },
-            { q: "Thủ tục quét dữ liệu định kỳ (Job Sync) đẩy giao dịch từ CDR_SUCCESS_TOLL_COLLECTION sang DEBT_TRANSACTION chạy với tần suất bao lâu trên môi trường Production?", options: ["10 phút/lần", "1 tiếng/lần", "1 phút/lần", "Chỉ chạy cuối ngày"], a: 2, exp: "Trên Production, Job đồng bộ chạy 1 phút/lần để đảm bảo thu tiền nhanh nhất." },
-            { q: "Trạng thái IS_SYNC = 7 trong bảng CDR_SUCCESS_TOLL_COLLECTION có ý nghĩa gì?", options: ["Giao dịch bị lỗi", "Giao dịch đã được quét và đẩy sang bảng quản lý nợ DEBT_TRANSACTION thành công", "Đã thanh toán thành công", "Đã gửi vào Blacklist"], a: 1, exp: "IS_SYNC = 7 là cờ báo hiệu bản ghi CDR đã được đẩy vào luồng thu nợ." },
-            { q: "Trong bảng SETTLEMENT.DEBT_TRANSACTION (ETC), mã RECOVERY_STATUS = 11 biểu thị điều gì?", options: ["Giao dịch nợ mới tạo", "Lỗi kết nối API", "Thanh toán/Truy thu thành công", "Bị đưa vào Blacklist"], a: 2, exp: "RECOVERY_STATUS = 11 là trạng thái thành công sau khi gọi Payment." },
-            { q: "Khi Service bãi đỗ (PARK) gọi thanh toán FW thất bại do hết tiền, hệ thống sẽ xử lý luồng tiếp theo như thế nào?", options: ["Ghi nợ Blacklist và khoá HĐ ngay lập tức", "Không cho xe ra khỏi bãi", "Chuyển hướng sang luồng thanh toán qua QR Code hoặc Tiền mặt", "Retry gọi FW liên tục"], a: 2, exp: "Bãi đỗ yêu cầu thu tiền tại chỗ, nếu FW lỗi sẽ linh hoạt chuyển sang QR/Tiền mặt." },
-
-            // LUỒNG GHI NHẬN BLACKLIST
-            { q: "Fintwin thực hiện gọi lệnh thanh toán sang Ngân hàng của khách (Batch job) vào các khung giờ nào hàng ngày?", options: ["0h00 và 12h00", "8h00 và 15h00", "10h00 và 16h00", "23h59"], a: 1, exp: "FW gom GD chạy batch 2 lần: 8h sáng (cho GD chiều hôm trước) và 15h (cho GD sáng nay)." },
-            { q: "Khi Fintwin gọi Bank thất bại, hệ thống FW sẽ gửi danh sách Blacklist sang ePass qua API nào?", options: ["/provide-token", "/payment/charge", "/transaction/fintwin/blacklist", "/ipn/clear-debt"], a: 2, exp: "API nhận Blacklist hàng ngày từ đối tác là /transaction/fintwin/blacklist." },
-            { q: "Trong luồng nhận Blacklist dịch vụ DANTHE, CRM yêu cầu giao dịch trong bảng SALE_TRANS.SALE_TRANS_CODE phải có STATUS bằng mấy?", options: ["STATUS = 1", "STATUS = 2", "STATUS = 3", "PROCESSING_STATUS = 1"], a: 1, exp: "STATUS = 2 (Đã gửi lệnh thanh toán thành công sang FW) thì mới có thể bị FW báo lỗi Blacklist." },
-            { q: "Khi nhận Blacklist (bất kể dịch vụ nào), hành động mang tính 'chặn rủi ro' quan trọng nhất mà hệ thống ePass/OCS thực hiện là gì?", options: ["Nhắn tin doạ kiện khách hàng", "In-active trạng thái liên kết của HĐ (charge_method = 61 -> 60)", "Huỷ luôn liên kết Fintwin", "Chặn biển số xe trên toàn quốc"], a: 1, exp: "Hệ thống khoá charge_method về 60 để chặn khách hàng tiếp tục đi qua trạm gây nợ xấu." },
-            { q: "Blacklist dịch vụ Bãi đỗ (PARK) cập nhật PROCESSING_STATUS về giá trị nào trong bảng PARKING_DEBT_TRANSACTIONS?", options: ["1", "2", "3", "21"], a: 1, exp: "PROCESSING_STATUS = 2 nghĩa là Giao dịch nợ cần hỗ trợ truy thu (Blacklist bãi đỗ)." },
-            { q: "Câu bẫy logic: Nếu tồn tại giao dịch đang ở trong Blacklist, nhưng do lỗi bất đồng bộ, hệ thống ePass VẪN giữ trạng thái HĐ là 61 và VẪN gửi request thanh toán mới sang FW. Kết quả sẽ ra sao?", options: ["FW vẫn trừ tiền bình thường", "FW khoá luôn tài khoản ngân hàng của KH", "FW sẽ TRẢ LỖI TỪ CHỐI cho tới khi KHÔNG CÒN giao dịch Blacklist nào", "Hệ thống ePass sập"], a: 2, exp: "Cơ chế phòng vệ của FW: Chặn mọi request mới nếu phát hiện user đang có nợ xấu chưa thanh toán." },
-
-            // LUỒNG IPN (GẠCH NỢ) & RE-ACTIVE (KIẾN THỨC MỚI & CŨ)
-            { q: "Có bao nhiêu phương thức IPN (ipnType) chính để gạch nợ (xoá giao dịch khỏi Blacklist)?", options: ["1 (Chỉ qua App ePass)", "3 (App, Web, SMS)", "2 (BLACKLIST_PAYMENT_SUCCESS và QR_PAYMENT)", "Không có phương thức nào"], a: 2, exp: "1. FW chủ động thu được từ Bank (BLACKLIST_PAYMENT_SUCCESS). 2. KH tự trả qua QR (QR_PAYMENT)." },
-            { q: "Khách hàng nợ cước Bãi đỗ (PARK) và thanh toán nợ gốc thành công qua IPN loại 'FULL_REFUND'. Hệ thống cập nhật PAYMENT_METHOD_ID bằng bao nhiêu?", options: ["1", "2", "3", "4"], a: 2, exp: "Theo tài liệu PARK: Blacklist_Success = 1, QR = 2, FULL_REFUND = 3." },
-            { q: "Sau khi nhận IPN gạch nợ thành công cho 1 giao dịch DANTHE, hệ thống ePass CÓ lập tức mở khoá (Re-active 60->61) hợp đồng không?", options: ["Có, mở ngay lập tức", "Không, hệ thống phải truy vấn kiểm tra xem còn nợ Blacklist xe qua trạm hoặc bãi đỗ không. Chỉ SẠCH TOÀN BỘ NỢ mới mở.", "Không, phải đợi qua 24h", "Chỉ mở khi khách gọi tổng đài"], a: 1, exp: "Thuật toán Cross-debt check (Kiểm tra nợ chéo) bắt buộc sạch nợ cả 3 bảng mới gọi OCS Re-active." },
-            { q: "Trong quá trình quét nợ chéo để Re-active, bảng nào dùng để kiểm tra nợ Blacklist của dịch vụ ETC?", options: ["CRM.DEBIT_TRANSACTION (PROCESSING_STATUS=1)", "SETTLEMENT.PARKING_DEBT_TRANSACTIONS (PROCESSING_STATUS=2)", "SETTLEMENT.DEBT_TRANSACTION (PROCESSING_STATUS=21, FUND_ID=7)", "SALE_TRANS"], a: 2, exp: "Nợ ETC được lưu trong SETTLEMENT.DEBT_TRANSACTION với PS=21." },
-            { q: "Khi thoả mãn điều kiện Sạch nợ, hệ thống nào chịu trách nhiệm Call hàm 'modifyContract' sang OCS để cập nhật charge_method 60 -> 61?", options: ["Chỉ duy nhất BE CRM", "Fintwin gọi trực tiếp OCS", "Hệ thống BE Bất thường / BE Billing (tuỳ luồng dịch vụ)", "App ePass của khách hàng"], a: 2, exp: "Hệ thống Core Billing/Bất thường sẽ xử lý việc gọi OCS, sau đó trả kết quả về CRM đồng bộ." },
-
-            // CÂU HỎI TÌNH HUỐNG THỰC TẾ (NÂNG CAO)
-            { q: "Tình huống: Khách hàng A đang nợ 1 phí dán thẻ. Sáng nay KH đi qua trạm (HĐ đang 60 nên bị chặn). Buổi trưa KH quét QR trả nợ phí dán thẻ thành công. Trạng thái HĐ lúc 13h chiều là gì?", options: ["60 (Vì chưa qua 24h)", "61 (Đã hết nợ, Re-active thành công)", "Bị khoá vĩnh viễn", "Đang chờ duyệt"], a: 1, exp: "Do không phát sinh nợ ETC (vì bị chặn sáng nay), trả xong nợ Danthe là sạch nợ -> Mở 61." },
-            { q: "Tình huống: KH yêu cầu huỷ liên kết Fintwin. API trả về mã lỗi 19. Nhân viên CSKH cần giải thích cho KH như thế nào?", options: ["Hệ thống ngân hàng đang bảo trì", "Tài khoản quý khách bị khoá do vi phạm", "Quý khách đang có giao dịch cước phí đang chờ Fintwin thanh toán với Ngân hàng. Vui lòng thử lại sau khi giao dịch hoàn tất.", "Mã OTP nhập sai"], a: 2, exp: "Mã 19 sinh ra từ FE khi check thấy GD Pending chưa có end-state từ FW." },
-            { q: "Một giao dịch nợ ETC có RECOVERY_STATUS = 14 trong bảng DEBT_TRANSACTION. Hướng xử lý của Vận hành là gì?", options: ["Bỏ qua vì đã thanh toán xong", "Đây là lỗi từ chối thanh toán không xác định hoặc lỗi PTTT. Cần kiểm tra log, có thể đưa vào luồng quét lại hoặc xử lý Blacklist.", "Báo Công an", "Hoàn tiền cho khách"], a: 1, exp: "RECOVERY_STATUS = 14 gom các lỗi Status 5 hoặc lỗi chưa rõ, cần review." },
-            { q: "Rủi ro lớn nhất (Race Condition) nếu khách hàng vừa thanh toán QR Code (IPN QR_PAYMENT), vừa đúng lúc Fintwin quét Batch thành công và gửi IPN (BLACKLIST_PAYMENT_SUCCESS) cho CÙNG 1 mã orderId là gì?", options: ["OCS bị quá tải", "Giao dịch không được gạch nợ", "Xung đột ghi đè dữ liệu, có thể dẫn đến lệch báo cáo doanh thu nếu không có cơ chế Database Lock chặt chẽ.", "Ngân hàng bị trừ tiền gấp 3"], a: 2, exp: "Xử lý đa luồng (Concurrency) yêu cầu Lock bản ghi khi nhận IPN để tránh update 2 lần." },
-            { q: "Khách hàng liên kết 2 nguồn tiền: FW (Nguồn chính - STATUS 1) và Viettel Money (Nguồn phụ - STATUS 3). Khi Fintwin báo lỗi Blacklist, hợp đồng sẽ bị khoá (60). Khách hàng có dùng Viettel Money để qua trạm được không?", options: ["Được, vì Viettel Money không lỗi", "Không, charge_method của toàn bộ HĐ đã bị set về 60 (Inactive) trên OCS.", "Chỉ đi được ở cao tốc Pháp Vân", "Hệ thống tự động xoá Fintwin"], a: 1, exp: "Khoá charge_method 60 là khoá cấp độ Hợp đồng trên OCS, chặn mọi luồng qua trạm." }
+            // 5. XỬ LÝ TÌNH HUỐNG THỰC TẾ
+            { q: "Tình huống: Khách hàng A đang nợ phí dán thẻ. Sáng nay KH đi qua trạm (HĐ đang Inactive 60 nên bị barie chặn). Buổi trưa KH quét QR trả nợ phí dán thẻ thành công. Hệ thống sẽ xử lý trạng thái HĐ như thế nào?", options: ["Chuyển trạng thái sang Pending chờ 24h", "Kiểm tra chéo thấy không có nợ ETC/Park -> Re-active HĐ sang 61", "Giữ nguyên 60 vì có GD qua trạm thất bại sáng nay", "Gửi thông báo huỷ Hợp đồng"], a: 1, exp: "GD qua trạm sáng nay bị chặn nên KHÔNG sinh ra nợ. Trả xong Danthe là sạch nợ -> Active 61." },
+            { q: "Một giao dịch nợ ETC có RECOVERY_STATUS = 14 trong bảng DEBT_TRANSACTION. Ý nghĩa và hướng xử lý là gì?", options: ["Đây là lỗi PTTT hoặc lỗi chưa xác định, cần ghi nhận để vận hành đối soát", "Giao dịch đã bị huỷ bởi người dùng", "Giao dịch đã thanh toán xong nhưng lỗi đồng bộ", "Khách hàng đã thanh toán bằng tiền mặt tại trạm"], a: 0, exp: "Mã 14 gom các lỗi Status 5 hoặc lỗi chưa định danh, cần đội ngũ kỹ thuật/vận hành review lại." },
+            { q: "Rủi ro kỹ thuật (Race Condition) nào có thể xảy ra nếu KH thanh toán QR Code (QR_PAYMENT), và đúng lúc đó FW quét Batch thành công gửi IPN (BLACKLIST_PAYMENT_SUCCESS) cho CÙNG 1 mã orderId?", options: ["Hệ thống OCS từ chối cả 2 lệnh", "Xung đột ghi đè dữ liệu, dẫn đến lệch báo cáo nếu thiếu cơ chế Database Lock chặt chẽ", "Hệ thống sẽ cộng gấp đôi tiền vào TKGT của khách", "Không có rủi ro do DB tự động phân biệt IPN type"], a: 1, exp: "Xử lý đa luồng (Concurrency) cùng lúc trên 1 bản ghi luôn yêu cầu cơ chế Lock để tránh update sai trạng thái." },
+            { q: "Khách hàng liên kết 2 nguồn tiền: FW (Nguồn chính - STATUS 1) và Viettel Money (Nguồn phụ - STATUS 3). Khi Fintwin báo lỗi Blacklist, hợp đồng bị khoá (60). Khách hàng có dùng Viettel Money để qua trạm trả sau được không?", options: ["Được, vì nguồn Viettel Money không bị lỗi", "Không, trạng thái charge_method = 60 là khoá cấp độ Hợp đồng trên OCS, chặn mọi luồng thanh toán trả sau", "Được, nhưng hệ thống sẽ trừ thêm phí phạt", "Chỉ áp dụng tại một số trạm nhất định"], a: 1, exp: "Khoá charge_method 60 tác động lên OCS, khiến hợp đồng mất quyền đi qua trạm bằng bất cứ nguồn trả sau nào." },
+            { q: "Trong quá trình nhận IPN ETC, hệ thống BE Bất thường validate thông tin 'principalAmount'. Nếu số tiền truyền sang KHÁC với DEBT_TRANSACTION.PRICE, hệ thống sẽ làm gì?", options: ["Chấp nhận thanh toán một phần (Partial payment)", "NOK, trả mã lỗi từ chối giao dịch", "Ghi nhận số dư vào TKGT", "Tự động điều chỉnh số tiền trong DB cho khớp"], a: 1, exp: "IPN bắt buộc phải khớp 100% principalAmount, nếu sai lệch sẽ trả lỗi từ chối ngay." },
+            { q: "Bảng SALE_TRANS mapping với bảng DEBIT_TRANSACTION (DANTHE) thông qua điều kiện nào?", options: ["SALE_TRANS.CONTRACT_ID = DEBIT_TRANSACTION.CONTRACT_ID", "Chỉ qua VEHICLE_ID", "Qua bảng trung gian SALE_TRANS_DETAIL dựa trên VEHICLE_ID và RFID_SERIAL", "Không mapping, hai bảng độc lập"], a: 2, exp: "Mapping thông qua SALE_TRANS_DETAIL (Vehicle_ID = Vehicle_ID, Object_Value = RFID_Serial, Sale_Trans_ID = Sale_Trans_ID)." }
         ];
 
-        // --- CÁC HÀM TIỆN ÍCH ---
+        // Hàm xáo trộn mảng
         const shuffleArray = (arr) => [...arr].sort(() => Math.random() - 0.5);
 
-        // Trộn options và lưu lại index của đáp án đúng mới
+        // Chuẩn bị đề thi (random câu, random đáp án)
         const processQuestions = (questionsPool, count) => {
             const selected = shuffleArray(questionsPool).slice(0, count);
             return selected.map(q => {
-                const optionsWithCorrectness = q.options.map((opt, index) => ({
-                    text: opt,
-                    isCorrect: index === q.a
-                }));
+                const optionsWithCorrectness = q.options.map((opt, index) => ({ text: opt, isCorrect: index === q.a }));
                 const shuffledOptions = shuffleArray(optionsWithCorrectness);
                 const newCorrectIndex = shuffledOptions.findIndex(o => o.isCorrect);
                 return {
@@ -111,32 +119,29 @@
             return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         };
 
-        function App() {
+        export default function App() {
             const [screen, setScreen] = useState('intro'); // intro, quiz, result, review, admin-login, admin
             const [userName, setUserName] = useState('');
             const [questions, setQuestions] = useState([]);
             const [currentIdx, setCurrentIdx] = useState(0);
             const [userAnswers, setUserAnswers] = useState({});
             
-            // Cấu hình bài thi
-            const EXAM_TIME = 45 * 60; // 45 phút
+            const EXAM_TIME = 45 * 60;
             const QUESTION_COUNT = 30;
-            const ADMIN_PASS = '230696';
+            const ADMIN_PASS = '230696'; // Updated Admin Pass
 
             const [timeLeft, setTimeLeft] = useState(EXAM_TIME);
             const [isFinished, setIsFinished] = useState(false);
             
-            // Bắt gian lận
             const [cheatCount, setCheatCount] = useState(0);
             const [showCheatWarning, setShowCheatWarning] = useState(false);
             const isExamActive = screen === 'quiz' && !isFinished;
 
-            // Admin state
             const [adminPassInput, setAdminPassInput] = useState('');
             const [adminData, setAdminData] = useState([]);
-            const [sortFilter, setSortFilter] = useState('date_desc'); // date_desc, score_desc, time_asc
+            const [sortFilter, setSortFilter] = useState('date_desc');
 
-            // --- XỬ LÝ GIAN LẬN (CHUYỂN TAB) ---
+            // --- XỬ LÝ GIAN LẬN ---
             useEffect(() => {
                 const handleBlur = () => {
                     if (isExamActive && !showCheatWarning) {
@@ -154,15 +159,14 @@
                 if (isExamActive && timeLeft > 0) {
                     timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
                 } else if (timeLeft === 0 && isExamActive) {
-                    alert("ĐÃ HẾT 45 PHÚT LÀM BÀI! Hệ thống sẽ tự động nộp bài.");
+                    alert("ĐÃ HẾT THỜI GIAN! Hệ thống đang tự động nộp bài.");
                     finishExam();
                 }
                 return () => clearInterval(timer);
             }, [isExamActive, timeLeft]);
 
             const startExam = () => {
-                if (!userName.trim()) return alert("Vui lòng nhập đầy đủ Họ và Tên!");
-                // Lấy 30 câu ngẫu nhiên từ pool (nếu pool < 30 thì lấy hết pool)
+                if (!userName.trim()) return alert("Vui lòng nhập Họ và Tên để bắt đầu!");
                 const poolSize = Math.min(QUESTION_COUNT, allQuestions.length);
                 setQuestions(processQuestions(allQuestions, poolSize));
                 setUserAnswers({});
@@ -194,7 +198,6 @@
                     }))
                 };
 
-                // Lưu dữ liệu
                 if (db) {
                     try {
                         await db.collection("fintwin_exams").add(resultRecord);
@@ -222,29 +225,28 @@
                 setScreen('admin');
             };
 
-            // Sorting logic for Admin
             const sortedAdminData = useMemo(() => {
                 const arr = [...adminData];
                 if (sortFilter === 'score_desc') return arr.sort((a, b) => b.score - a.score);
                 if (sortFilter === 'time_asc') return arr.sort((a, b) => a.timeSpent - b.timeSpent);
-                // default date_desc
                 return arr.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
             }, [adminData, sortFilter]);
 
-            // --- RENDER VIEWS ---
-
+            // --- UI RENDER ---
             if (screen === 'intro') return (
                 <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-800 to-slate-900 text-white">
-                    <div className="max-w-md w-full glass-panel rounded-3xl p-8 shadow-2xl text-slate-800 text-center">
-                        <div className="bg-blue-600 text-white w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+                    <div className="max-w-md w-full glass-panel rounded-[2rem] p-8 shadow-2xl text-slate-800 text-center">
+                        <div className="bg-blue-600 text-white w-20 h-20 rounded-[1.5rem] flex items-center justify-center mx-auto mb-6 shadow-lg">
                             <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                         </div>
-                        <h1 className="text-2xl font-black mb-8 uppercase tracking-tight text-slate-800">BÀI KIỂM TRA NGHIỆP VỤ THANH TOÁN FINTWIN</h1>
+                        <h1 className="text-[1.35rem] font-black mb-8 uppercase tracking-tight text-slate-800 leading-snug">
+                            BÀI KIỂM TRA NGHIỆP VỤ<br/>THANH TOÁN FINTWIN
+                        </h1>
                         
-                        <div className="space-y-4 mb-8 text-left bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <div className="space-y-4 mb-8 text-left bg-slate-50 p-5 rounded-2xl border border-slate-100">
                             <p className="text-sm font-bold text-slate-700">⏱ Thời gian: <span className="text-blue-600 font-black">45 Phút</span></p>
-                            <p className="text-sm font-bold text-slate-700">📝 Số lượng: <span className="text-blue-600 font-black">{Math.min(QUESTION_COUNT, allQuestions.length)} Câu hỏi ngẫu nhiên</span></p>
-                            <p className="text-xs text-red-500 font-bold mt-2">⚠️ Lưu ý: Hệ thống có ghi nhận số lần thoát/chuyển tab trong quá trình làm bài.</p>
+                            <p className="text-sm font-bold text-slate-700">📝 Số lượng: <span className="text-blue-600 font-black">30 Câu hỏi ngẫu nhiên</span></p>
+                            <p className="text-xs text-red-500 font-bold mt-2">⚠️ Lưu ý: Hệ thống có giám sát hành vi thoát tab / thu nhỏ màn hình trong khi thi.</p>
                         </div>
 
                         <input 
@@ -254,13 +256,13 @@
                         />
                         <button 
                             onClick={startExam} disabled={!userName.trim()} 
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-black text-lg shadow-lg disabled:opacity-50 transition active:scale-95"
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-black text-lg shadow-lg disabled:opacity-50 transition active:scale-95 uppercase tracking-wide"
                         >
-                            BẮT ĐẦU LÀM BÀI
+                            Bắt đầu làm bài
                         </button>
                         
-                        <button onClick={() => setScreen('admin-login')} className="mt-6 text-xs text-slate-400 font-bold hover:text-slate-600 uppercase tracking-widest">
-                            Quản trị viên
+                        <button onClick={() => setScreen('admin-login')} className="mt-8 text-xs text-slate-400 font-bold hover:text-slate-600 uppercase tracking-widest transition">
+                            Cổng Quản Trị
                         </button>
                     </div>
                 </div>
@@ -270,7 +272,6 @@
                 const q = questions[currentIdx];
                 return (
                     <div className="min-h-screen flex flex-col relative">
-                        {/* Cảnh báo gian lận Popup */}
                         {showCheatWarning && (
                             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                                 <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl danger-stripes border-4 border-red-500">
@@ -278,9 +279,9 @@
                                         <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                                     </div>
                                     <h2 className="text-2xl font-black text-red-700 mb-2 uppercase">Cảnh báo vi phạm!</h2>
-                                    <p className="text-sm font-bold text-red-900 mb-6">Bạn vừa chuyển tab hoặc thu nhỏ trình duyệt. Hành động này đã được hệ thống ghi nhận lại.</p>
+                                    <p className="text-sm font-bold text-red-900 mb-6">Bạn vừa chuyển tab hoặc thu nhỏ trình duyệt. Hành động này đã được ghi nhận.</p>
                                     <button onClick={() => setShowCheatWarning(false)} className="bg-red-600 text-white w-full py-4 rounded-xl font-black uppercase shadow-lg hover:bg-red-700 active:scale-95 transition">
-                                        Tôi đã hiểu và cam kết không tái phạm
+                                        Tôi cam kết không tái phạm
                                     </button>
                                 </div>
                             </div>
@@ -297,13 +298,13 @@
                             <div className={`font-mono text-2xl font-black px-4 py-1 rounded-lg ${timeLeft < 300 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-blue-50 text-blue-700'}`}>
                                 {formatTime(timeLeft)}
                             </div>
-                            <button onClick={() => window.confirm("Bạn có chắc chắn muốn nộp bài ngay?") && finishExam()} className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-md transform active:scale-95 transition">
+                            <button onClick={() => window.confirm("Xác nhận nộp bài? Bạn sẽ không thể sửa lại.") && finishExam()} className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-md transform active:scale-95 transition">
                                 NỘP BÀI
                             </button>
                         </header>
 
                         <main className="flex-1 p-4 md:p-8 max-w-4xl mx-auto w-full">
-                            <div className="w-full bg-slate-200 h-2 rounded-full mb-8 overflow-hidden">
+                            <div className="w-full bg-slate-200 h-2.5 rounded-full mb-8 overflow-hidden">
                                 <div className="bg-blue-500 h-full transition-all duration-300" style={{ width: `${((currentIdx + 1) / questions.length) * 100}%` }}></div>
                             </div>
 
@@ -388,7 +389,6 @@
                                 <button onClick={() => setScreen('review')} className="w-full bg-slate-800 hover:bg-slate-900 text-white font-black py-4 rounded-xl transition active:scale-95 shadow-lg uppercase tracking-wide">
                                     Xem chi tiết đáp án
                                 </button>
-                                {/* ĐÃ XOÁ NÚT THI LẠI THEO YÊU CẦU */}
                             </div>
                         </div>
                     </div>
@@ -414,12 +414,12 @@
                                             const isSelected = userAnswers[idx] === i;
                                             const isTrueAns = q.a === i;
                                             let style = 'bg-slate-50 border-slate-100 text-slate-500';
-                                            if (isTrueAns) style = 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-1 ring-emerald-500';
-                                            else if (isSelected) style = 'bg-red-50 border-red-200 text-red-700';
+                                            if (isTrueAns) style = 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-1 ring-emerald-500 font-bold';
+                                            else if (isSelected) style = 'bg-red-50 border-red-200 text-red-700 font-bold';
 
                                             return (
-                                                <div key={i} className={`p-4 rounded-xl text-sm font-semibold border-2 flex items-start gap-3 ${style}`}>
-                                                    <span className="shrink-0 mt-0.5">{String.fromCharCode(65 + i)}.</span>
+                                                <div key={i} className={`p-4 rounded-xl text-sm border-2 flex items-start gap-3 ${style}`}>
+                                                    <span className="shrink-0 mt-0.5 font-black">{String.fromCharCode(65 + i)}.</span>
                                                     <span>{opt}</span>
                                                     {isTrueAns && <svg className="w-5 h-5 ml-auto text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>}
                                                     {isSelected && !isTrueAns && <svg className="w-5 h-5 ml-auto text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"></path></svg>}
@@ -448,7 +448,7 @@
                         <h2 className="font-black mb-6 uppercase tracking-widest text-slate-800">Cổng Quản Trị</h2>
                         <input type="password" value={adminPassInput} onChange={e => setAdminPassInput(e.target.value)} className="w-full border-2 border-slate-200 focus:border-slate-800 p-4 rounded-xl mb-4 text-center font-bold outline-none" placeholder="Mật mã..." />
                         <button onClick={() => adminPassInput === ADMIN_PASS ? loadAdminData() : alert("Sai mật mã!")} className="w-full bg-slate-800 text-white py-4 rounded-xl font-black shadow-lg hover:bg-slate-900 transition">XÁC NHẬN</button>
-                        <button onClick={() => setScreen('intro')} className="mt-6 text-slate-400 text-xs font-bold uppercase tracking-widest">Trở về trang chủ</button>
+                        <button onClick={() => setScreen('intro')} className="mt-6 text-slate-400 text-xs font-bold uppercase tracking-widest hover:text-slate-600 transition">Trở về trang chủ</button>
                     </div>
                 </div>
             );
@@ -482,7 +482,7 @@
                                             <th className="p-5">Điểm (Hệ 10)</th>
                                             <th className="p-5">Tỷ lệ</th>
                                             <th className="p-5">Thời gian làm</th>
-                                            <th className="p-5">Vi phạm</th>
+                                            <th className="p-5">Vi phạm (Thoát tab)</th>
                                             <th className="p-5">Ngày nộp</th>
                                         </tr>
                                     </thead>
@@ -513,7 +513,7 @@
                                     </tbody>
                                 </table>
                             </div>
-                            {adminData.length === 0 && <div className="p-12 text-center text-slate-400 font-bold">Danh sách trống.</div>}
+                            {adminData.length === 0 && <div className="p-12 text-center text-slate-400 font-bold">Chưa có dữ liệu bài thi.</div>}
                         </div>
                     </div>
                 </div>
@@ -525,3 +525,5 @@
     </script>
 </body>
 </html>
+
+
